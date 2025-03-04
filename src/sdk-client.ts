@@ -345,9 +345,13 @@ export class SDKClient {
                 value: identityId,
             },
         ]
-        const response = await api.updateAccount({ id, requestBody })
-
-        return response.data
+        try {
+            const response = await api.updateAccount({ id, requestBody })
+            return response.data
+        } catch (error) {
+            return {}
+        }
+        
     }
 
     async createForm(form: CreateFormDefinitionRequestBeta): Promise<FormDefinitionResponseBeta> {

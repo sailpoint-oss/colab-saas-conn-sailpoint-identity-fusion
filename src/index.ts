@@ -321,16 +321,10 @@ export const connector = async () => {
 
             //BUILD RESULTING ACCOUNTS
             logger.info('Sending accounts.')
+            await ctx.listAndSendUniqueAccounts(res);
 
-            const promises = ctx.listUniqueAccounts()
-            for (const promise of promises) {
-                promise.then((account) => {
-                    logger.debug({ account })
-                    res.send(account)
-                })
-            }
-
-            await Promise.all(promises)
+            
+            
         } finally {
             clearInterval(interval)
         }

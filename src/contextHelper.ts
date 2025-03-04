@@ -378,15 +378,38 @@ export class ContextHelper {
         }
     }
 
-    listUniqueAccounts(): Promise<UniqueAccount>[] {
-        const c = 'listUniqueAccounts'
-
-        logger.debug(lm('Updating accounts.', c))
-
-        const promises = this.accounts.map((x) => this.refreshUniqueAccount(x))
-        this.accounts = []
-
-        return promises
+    async listAndSendUniqueAccounts(res: any): Promise<UniqueAccount[]> {
+        const c = 'listUniqueAccounts';
+        const uniqueAccounts: UniqueAccount[] = [];
+        logger.debug(lm('Updating accounts.', c));
+    
+        const batchSize = 500;
+        const concurrency = 50; // Adjust this based on your system's capabilities
+    
+        for (let i = 0; i < this.accounts.length; i += batchSize) {
+            const batch = this.accounts.slice(i, i + batchSize);
+            
+            // Process accounts in smaller chunks to limit concurrency
+            for (let j = 0; j < batch.length; j += concurrency) {
+                const chunk = batch.slice(j, j + concurrency);
+                const processedChunk = await Promise.all(chunk.map(account => this.refreshUniqueAccount(account)));
+                uniqueAccounts.push(...processedChunk);
+                
+                // Send processed accounts immediately
+                for (const account of processedChunk) {
+                    res.send(account);
+                }
+            }
+    
+            console.log(lm(`Processed batch ${i / batchSize + 1} of ${Math.ceil(this.accounts.length / batchSize)}`, c));
+            
+            // Clear the processed batch to free up memory
+            batch.length = 0;
+        }
+    
+        this.accounts = [];
+    
+        return uniqueAccounts;
     }
 
     private async getAccountIdentity(account: Account): Promise<IdentityDocument | undefined> {
