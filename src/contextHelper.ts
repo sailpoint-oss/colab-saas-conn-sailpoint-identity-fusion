@@ -383,10 +383,11 @@ export class ContextHelper {
         const uniqueAccounts: UniqueAccount[] = [];
         logger.debug(lm('Updating accounts.', c));
     
-        const batchSize = 500;
-        const concurrency = 50; // Adjust this based on your system's capabilities
+        const batchSize = 2000;
+        const concurrency = 200;
     
         for (let i = 0; i < this.accounts.length; i += batchSize) {
+            const batchStartTime = performance.now();
             const batch = this.accounts.slice(i, i + batchSize);
             
             // Process accounts in smaller chunks to limit concurrency
@@ -401,8 +402,11 @@ export class ContextHelper {
                 }
             }
     
-            console.log(lm(`Processed batch ${i / batchSize + 1} of ${Math.ceil(this.accounts.length / batchSize)}`, c));
-            
+            const batchEndTime = performance.now();
+            const batchDuration = batchEndTime - batchStartTime;
+    
+            console.log(lm(`Processed batch ${i / batchSize + 1} of ${Math.ceil(this.accounts.length / batchSize)}. Batch duration: ${batchDuration.toFixed(0)}ms.`, c));
+    
             // Clear the processed batch to free up memory
             batch.length = 0;
         }
