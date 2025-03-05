@@ -383,23 +383,20 @@ export class ContextHelper {
         const uniqueAccounts: UniqueAccount[] = [];
         logger.debug(lm('Updating accounts.', c));
     
-        const batchSize = 2000;
-        const concurrency = 200;
+        const batchSize = 200;
+        const concurrency = 20;
     
         for (let i = 0; i < this.accounts.length; i += batchSize) {
             const batchStartTime = performance.now();
             const batch = this.accounts.slice(i, i + batchSize);
             
-            // Process accounts in smaller chunks to limit concurrency
-            for (let j = 0; j < batch.length; j += concurrency) {
-                const chunk = batch.slice(j, j + concurrency);
-                const processedChunk = await Promise.all(chunk.map(account => this.refreshUniqueAccount(account)));
-                uniqueAccounts.push(...processedChunk);
-                
-                // Send processed accounts immediately
-                for (const account of processedChunk) {
-                    res.send(account);
-                }
+            // Process accounts with controlled concurrency
+            const processedBatch = await this.processAccountsWithConcurrency(batch, concurrency);
+            uniqueAccounts.push(...processedBatch);
+            
+            // Send processed accounts immediately
+            for (const account of processedBatch) {
+                res.send(account);
             }
     
             const batchEndTime = performance.now();
@@ -414,6 +411,16 @@ export class ContextHelper {
         this.accounts = [];
     
         return uniqueAccounts;
+    }
+
+    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {
+        const results: UniqueAccount[] = [];
+        for (let i = 0; i < accounts.length; i += concurrency) {
+            const chunk = accounts.slice(i, i + concurrency);
+            const processedChunk = await Promise.all(chunk.map(account => this.refreshUniqueAccount(account)));
+            results.push(...processedChunk);
+        }
+        return results;
     }
 
     private async getAccountIdentity(account: Account): Promise<IdentityDocument | undefined> {
