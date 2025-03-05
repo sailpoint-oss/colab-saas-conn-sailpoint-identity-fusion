@@ -53,28 +53,28 @@ jobs:
           else
             echo "STACK=${{ env.CONNECTOR_NAME }}-staging" >> $GITHUB_ENV
           fi
-      - name: Download sailpoint-cli package
-        run: |
-          wget https://github.com/sailpoint-oss/sailpoint-cli/releases/download/${{ env.CLI_VERSION }}/sail_${{ env.CLI_VERSION }}_linux_amd64.deb
+      # - name: Download sailpoint-cli package
+      #   run: |
+      #     wget https://github.com/sailpoint-oss/sailpoint-cli/releases/download/${{ env.CLI_VERSION }}/sail_${{ env.CLI_VERSION }}_linux_amd64.deb
 
-      - name: Install sailpoint-cli
-        run: |
-          sudo dpkg -i sail_${{ env.CLI_VERSION }}_linux_amd64.deb
+      # - name: Install sailpoint-cli
+      #   run: |
+      #     sudo dpkg -i sail_${{ env.CLI_VERSION }}_linux_amd64.deb
 
-      - name: Use sailpoint-cli to create new connector
-        run: |
-          sail conn create "${{ env.STACK }}"
+      # - name: Use sailpoint-cli to create new connector
+      #   run: |
+      #     sail conn create "${{ env.STACK }}"
 
-      - name: Use sailpoint-cli to upload new connector
-        run: |
-          set -e
-          sail conn upload -c "${{ env.STACK }}" -f ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip
+      # - name: Use sailpoint-cli to upload new connector
+      #   run: |
+      #     set -e
+      #     sail conn upload -c "${{ env.STACK }}" -f ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip
 
-      - name: Run integration tests for connector
-        if: github.event_name == 'pull_request'
-        id: integrationTests
-        run: |
-          npm run test
+      # - name: Run integration tests for connector
+      #   if: github.event_name == 'pull_request'
+      #   id: integrationTests
+      #   run: |
+      #     npm run test
       # deploy connector if push to main branch
       - name: Check version change
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

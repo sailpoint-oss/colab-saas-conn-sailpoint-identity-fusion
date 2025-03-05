@@ -26,28 +26,28 @@ jobs:
         with:
           node-version: "18"
       # Checkout the master branch request to run rsync
-      - name: Checkout main branch
-        uses: actions/checkout@v3
-        with:
-          ref: main
-          fetch-depth: 0
+      # - name: Checkout main branch
+      #   uses: actions/checkout@v3
+      #   with:
+      #     ref: main
+      #     fetch-depth: 0
 
-      - name: Extract version from package.json
-        run: |
-          echo "CONNECTOR_NAME=$(jq -r .name package.json)" >> $GITHUB_ENV
-      - name: set env vars
-        run: |
-          echo "STACK=${{ env.CONNECTOR_NAME }}-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+      # - name: Extract version from package.json
+      #   run: |
+      #     echo "CONNECTOR_NAME=$(jq -r .name package.json)" >> $GITHUB_ENV
+      # - name: set env vars
+      #   run: |
+      #     echo "STACK=${{ env.CONNECTOR_NAME }}-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
 
 
-      - name: Download sailpoint-cli package
-        run: |
-          wget https://github.com/sailpoint-oss/sailpoint-cli/releases/download/${{ env.CLI_VERSION }}/sail_${{ env.CLI_VERSION }}_linux_amd64.deb
+      # - name: Download sailpoint-cli package
+      #   run: |
+      #     wget https://github.com/sailpoint-oss/sailpoint-cli/releases/download/${{ env.CLI_VERSION }}/sail_${{ env.CLI_VERSION }}_linux_amd64.deb
 
-      - name: Install sailpoint-cli
-        run: |
-          sudo dpkg -i sail_${{ env.CLI_VERSION }}_linux_amd64.deb
+      # - name: Install sailpoint-cli
+      #   run: |
+      #     sudo dpkg -i sail_${{ env.CLI_VERSION }}_linux_amd64.deb
 
-      - name: Use sailpoint-cli to upload new connector
-        run: |
-          sail conn delete -c "${{ env.STACK }}"
+      # - name: Use sailpoint-cli to upload new connector
+      #   run: |
+      #     sail conn delete -c "${{ env.STACK }}"
