@@ -61,7 +61,7 @@ export class SDKClient {
         const tokenUrl = new URL(config.baseurl).origin + TOKEN_URL_PATH
         this.config = new Configuration({ ...config, tokenUrl, retriesConfig })
         axiosRetry(axios as any, retriesConfig)
-        axiosThrottle.use(axios as any, throttleConfig)
+        //axiosThrottle.use(axios as any, throttleConfig)
     }
 
     async listIdentities(attributes: string[]): Promise<IdentityDocument[]> {
@@ -345,9 +345,13 @@ export class SDKClient {
                 value: identityId,
             },
         ]
-        const response = await api.updateAccount({ id, requestBody })
-
-        return response.data
+        try {
+            const response = await api.updateAccount({ id, requestBody })
+            return response.data
+        } catch (error) {
+            return {}
+        }
+        
     }
 
     async createForm(form: CreateFormDefinitionRequestBeta): Promise<FormDefinitionResponseBeta> {

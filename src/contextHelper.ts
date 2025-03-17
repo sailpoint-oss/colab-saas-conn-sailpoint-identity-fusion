@@ -378,15 +378,53 @@ export class ContextHelper {
         }
     }
 
-    listUniqueAccounts(): Promise<UniqueAccount>[] {
-        const c = 'listUniqueAccounts'
+    async listAndSendUniqueAccounts(res: any): Promise<UniqueAccount[]> {
+        const c = 'listUniqueAccounts';
+        const uniqueAccounts: UniqueAccount[] = [];
+        logger.debug(lm('Updating accounts.', c));
+    
+        const batchSize = 50;
+        const concurrency = 25;
+    
+        for (let i = 0; i < this.accounts.length; i += batchSize) {
+            const batchStartTime = performance.now();
+            const batch = this.accounts.slice(i, i + batchSize);
+            
+            // Process accounts with controlled concurrency
+            const processedBatch = await this.processAccountsWithConcurrency(batch, concurrency);
+            uniqueAccounts.push(...processedBatch);
+            
+            // Send processed accounts immediately
+            for (const account of processedBatch) {
+                res.send(account);
+            }
+    
+            const batchEndTime = performance.now();
+            const batchDuration = batchEndTime - batchStartTime;
+    
+            logger.info(lm(`Processed batch ${i / batchSize + 1} of ${Math.ceil(this.accounts.length / batchSize)}. Total batch duration: ${batchDuration.toFixed(0)}ms.`, c));
+    
+            // Clear the processed batch to free up memory
+            batch.length = 0;
+        }
 
-        logger.debug(lm('Updating accounts.', c))
+    
+        this.accounts = [];
+    
+        return uniqueAccounts;
+    }
 
-        const promises = this.accounts.map((x) => this.refreshUniqueAccount(x))
-        this.accounts = []
-
-        return promises
+    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {
+        const results: UniqueAccount[] = [];
+        for (let i = 0; i < accounts.length; i += concurrency) {
+            const chunkStartTime = performance.now();
+            const chunk = accounts.slice(i, i + concurrency);
+            const processedChunk = await Promise.all(chunk.map(account => this.refreshUniqueAccount(account)));
+            results.push(...processedChunk);
+            const chunkEndTime = performance.now();
+            logger.debug(`Chunk ${i / concurrency + 1} processing time: ${(chunkEndTime - chunkStartTime).toFixed(0)}ms`);
+        }
+        return results;
     }
 
     private async getAccountIdentity(account: Account): Promise<IdentityDocument | undefined> {
@@ -458,12 +496,14 @@ export class ContextHelper {
         }
     }
 
+
     async refreshUniqueAccount(account: Account): Promise<UniqueAccount> {
         const c = 'refreshUniqueAccount'
-
+    
         const sourceAccounts = await this.listSourceAccounts(account)
+    
         let needsRefresh = false
-
+    
         logger.debug(lm(`Existing account. Enforcing defined correlation.`, c, 1))
         const identity = await this.getAccountIdentity(account)
 
@@ -522,6 +562,7 @@ export class ContextHelper {
         }
 
         const schema = await this.getSchema()
+    
         try {
             if (needsRefresh) {
                 logger.debug(lm(`Refreshing ${account.attributes!.uniqueID} account`, c, 1))
@@ -530,9 +571,9 @@ export class ContextHelper {
         } catch (error) {
             logger.error(error as string)
         }
-
+    
         const uniqueAccount = new UniqueAccount(account, schema)
-
+    
         return uniqueAccount
     }
 
