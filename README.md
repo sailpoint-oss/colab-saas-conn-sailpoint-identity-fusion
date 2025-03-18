@@ -12,7 +12,7 @@
 [contributor-shield]: https://img.shields.io/github/contributors/sailpoint-oss/repo-template?label=Contributors
 [contributors-url]: https://github.com/sailpoint-oss/repo-template/graphs/contributors
 
-# Identity Fusion SaaS Connector
+# SailPoint Identity Fusion SaaS Connector
 
 [Explore the docs »](https://developer.sailpoint.com/discuss/t/identity-fusion-connector/38793)
 
