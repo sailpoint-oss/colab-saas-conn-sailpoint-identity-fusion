@@ -5,6 +5,11 @@ import { buildAccountAttributesObject, lm } from '.'
 import { transliterate } from 'transliteration'
 import { Config } from '../model/config'
 
+/**
+ * Builds a unique ID for an account, optimized to handle large sets of IDs efficiently.
+ * Instead of incrementally checking each counter value, it determines the highest existing 
+ * counter value and starts from there.
+ */
 export const buildUniqueID = async (
     account: Account,
     currentIDs: Set<string>,
@@ -19,62 +24,98 @@ export const buildUniqueID = async (
     }
     const velocity = new velocityjs.Compile(template)
 
-    let found = false
-    let counter = 0
-    let id = ''
-    while (!found) {
-        logger.debug(lm('Building context', c, 2))
-        let context
-        if (buildContext) {
-            const attributes = buildAccountAttributesObject(account, config.merging_map)
-            context = { ...account.attributes, ...attributes }
-        } else {
-            context = { ...account.attributes }
-        }
+    // Generate the base ID (without a counter)
+    logger.debug(lm('Building context for base ID', c, 2))
+    let context
+    if (buildContext) {
+        const attributes = buildAccountAttributesObject(account, config.merging_map)
+        context = { ...account.attributes, ...attributes }
+    } else {
+        context = { ...account.attributes }
+    }
 
-        if (counter > 0) {
-            const c = '0'.repeat(Math.max(0, config.uid_digits - counter.toString().length)) + counter
-            context.counter = c
-        } else {
-            context.counter = ''
-        }
+    // First try with an empty counter
+    context.counter = ''
+    let baseId = velocity.render(context)
+    logger.debug(lm(`Template base ID: ${baseId}`, c, 2))
+    
+    if (baseId.length === 0) {
+        throw new Error('No value returned by template')
+    }
 
-        id = velocity.render(context)
-        logger.debug(lm(`Template render result: ${id}`, c, 2))
-        if (id.length === 0) {
-            throw new Error('No value returned by template')
-        }
+    // Apply formatting to the base ID
+    if (config.uid_normalize) {
+        baseId = transliterate(baseId)
+        baseId = baseId.replace(/'/g, '')
+    }
 
-        if (config.uid_normalize) {
-            id = transliterate(id)
-            id = id.replace(/'/g, '')
-        }
+    if (config.uid_spaces) {
+        baseId = baseId.replace(/\s/g, '')
+    }
 
-        if (config.uid_spaces) {
-            id = id.replace(/\s/g, '')
-        }
+    switch (config.uid_case) {
+        case 'lower':
+            baseId = baseId.toLowerCase()
+            break
+        case 'upper':
+            baseId = baseId.toUpperCase()
+            break
+        default:
+            break
+    }
 
-        switch (config.uid_case) {
-            case 'lower':
-                id = id.toLowerCase()
-                break
-            case 'upper':
-                id = id.toUpperCase()
-                break
-            default:
-                break
-        }
+    // If the base ID is unique, return it immediately
+    if (!currentIDs.has(baseId)) {
+        logger.debug(lm(`Final ID: ${baseId}`, c, 2))
+        return baseId
+    }
 
-        if (currentIDs.has(id!)) {
-            counter++
-            logger.debug(`Duplicate ID found for ${id}`)
-        } else {
-            found = true
+    // The base ID already exists, so we need to add a counter
+    // Find the highest counter value for this base ID prefix
+    const baseIdRegex = new RegExp(`^${baseId}(\\d+)$`)
+    let maxCounter = 0
+
+    for (const id of currentIDs) {
+        const match = id.match(baseIdRegex)
+        if (match) {
+            const counterValue = parseInt(match[1], 10)
+            maxCounter = Math.max(maxCounter, counterValue)
         }
     }
 
-    logger.debug(lm(`Final ID: ${id}`, c, 2))
-    return id
+    // Start with the next counter value
+    const nextCounter = maxCounter + 1
+    const paddedCounter = '0'.repeat(
+        Math.max(0, config.uid_digits - nextCounter.toString().length)
+    ) + nextCounter
+    context.counter = paddedCounter
+
+    // Generate the ID with the new counter
+    let uniqueId = velocity.render(context)
+    
+    // Apply formatting to the final ID
+    if (config.uid_normalize) {
+        uniqueId = transliterate(uniqueId)
+        uniqueId = uniqueId.replace(/'/g, '')
+    }
+
+    if (config.uid_spaces) {
+        uniqueId = uniqueId.replace(/\s/g, '')
+    }
+
+    switch (config.uid_case) {
+        case 'lower':
+            uniqueId = uniqueId.toLowerCase()
+            break
+        case 'upper':
+            uniqueId = uniqueId.toUpperCase()
+            break
+        default:
+            break
+    }
+
+    logger.debug(lm(`Final ID with counter: ${uniqueId}`, c, 2))
+    return uniqueId
 }
 
 // export const buildUniqueAccount = async (
