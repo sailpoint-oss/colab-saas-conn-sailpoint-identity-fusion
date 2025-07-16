@@ -84,6 +84,7 @@ export class ContextHelper {
     private initiated: string | undefined
     private mergingEnabled: boolean = false
     private candidatesStringAttributes: string[] = []
+    private fusionAggregationTime: number = 0
 
     constructor(config: Config) {
         this.config = config
@@ -149,6 +150,7 @@ export class ContextHelper {
     async init(schema?: AccountSchema, lazy?: boolean) {
         logger.debug(lm(`Looking for connector instance`, this.c))
 
+
         const id = this.config!.spConnectorInstanceId as string
         const allSources = await this.client.listSources()
         this.source = allSources.find((x) => (x.connectorAttributes as any).spConnectorInstanceId === id)
@@ -171,6 +173,11 @@ export class ContextHelper {
         const accountIdentites = await this.getSourceIdentityAttributes()
         const transformName = `${TRANSFORM_NAME} (${this.config!.cloudDisplayName})`
         await this.createTransform(transformName, accountIdentites)
+
+        const latestFusionAggregation = await this.client.getLatestAccountAggregation(this.source!.name!)
+        if (latestFusionAggregation) {
+            this.fusionAggregationTime = new Date(latestFusionAggregation.created!).getTime()
+        }
 
         // this.identities = []
         this.identitiesById = new Map()
@@ -466,6 +473,7 @@ export class ContextHelper {
             sourceAccounts.push(account)
         } else {
             if (this.initiated === 'full') {
+                // TODO: Store this in a map ahead of time for faster access and remove filter
                 for (const sourceName of this.config.sources) {
                     const accounts = this.authoritativeAccounts.filter(
                         (x) => x.sourceName === sourceName && account.attributes!.accounts.includes(x.id)
@@ -509,6 +517,7 @@ export class ContextHelper {
 
         let accountIds: string[] = []
         if (identity) {
+            // Check the account ids to see if it has changed from prior aggregation to now. If so, refresh account
             const accounts = identity.accounts!
             const sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.source!.name!))
             accountIds = sourceAccounts.map((x) => x.id!)
@@ -552,11 +561,11 @@ export class ContextHelper {
             !account.attributes!.statuses.some((x: string) => ['edited', 'orphan'].includes(x))
         ) {
             const lastConfigChange = new Date(this.source!.modified!).getTime()
-            const lastModified = new Date(account.modified!).getTime()
-            if (lastModified < lastConfigChange) {
+            
+            if (this.fusionAggregationTime < lastConfigChange) {
                 needsRefresh = true
             } else {
-                const newSourceData = sourceAccounts.find((x) => new Date(x.modified!).getTime() > lastModified)
+                const newSourceData = sourceAccounts.find((x) => new Date(x.modified!).getTime() > this.fusionAggregationTime)
                 needsRefresh = newSourceData ? true : false
             }
         }
