@@ -29,7 +29,7 @@ export const buildUniqueID = async (
     const velocity = new velocityjs.Compile(template)
 
     // Generate the base ID (without a counter)
-    logger.debug(lm('Building context for base ID', c, 2))
+    //logger.debug(lm('Building context for base ID', c, 2))
     let context
     if (buildContext) {
         const attributes = buildAccountAttributesObject(account, config.merging_map)
@@ -41,7 +41,7 @@ export const buildUniqueID = async (
     // First try with an empty counter
     context.counter = ''
     let baseId = velocity.render(context)
-    logger.debug(lm(`Template base ID: ${baseId}`, c, 2))
+    //logger.debug(lm(`Template base ID: ${baseId}`, c, 2))
     
     if (baseId.length === 0) {
         throw new Error('No value returned by template')
@@ -70,7 +70,7 @@ export const buildUniqueID = async (
 
     // If the base ID is unique, return it immediately
     if (!currentIDs.has(baseId)) {
-        logger.debug(lm(`Final ID: ${baseId}`, c, 2))
+        //logger.debug(lm(`Final ID: ${baseId}`, c, 2))
         return baseId
     }
 
@@ -128,6 +128,6 @@ export const buildUniqueID = async (
             break
     }
 
-    logger.debug(lm(`Final ID with counter: ${uniqueId}`, c, 2))
+    //logger.debug(lm(`Final ID with counter: ${uniqueId}`, c, 2))
     return uniqueId
 }

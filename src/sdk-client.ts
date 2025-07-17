@@ -230,6 +230,7 @@ export class SDKClient {
             return await api.listAccounts({ ...requestParameters, filters })
         }
 
+        // TODO : Add async pagination here
         const response = await Paginator.paginate(api, search)
 
         return response.data

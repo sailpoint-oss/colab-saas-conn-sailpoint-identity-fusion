@@ -93,7 +93,7 @@ describe('buildUniqueID', () => {
     console.log(`First call execution time: ${duration1}ms`)
     console.log(`Second call execution time: ${duration2}ms`)
     
-    // Results should be sequential
+    // Results should be sequential, with the next counter value after the highest (1000)
     expect(uniqueID1).toBe('jdoe1001')
     expect(uniqueID2).toBe('jdoe1002')
     

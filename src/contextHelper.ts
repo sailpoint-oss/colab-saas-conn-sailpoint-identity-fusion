@@ -73,6 +73,8 @@ export class ContextHelper {
     // private currentIdentities: IdentityDocument[]
     private accounts: Account[]
     private authoritativeAccounts: Account[]
+    // Map of account ID to source accounts for faster lookup
+    private accountSourceMap: Map<string, Account[]>
     private uniqueForms: FormDefinitionResponseBeta[]
     private uniqueFormInstances: FormInstanceResponseBeta[]
     private editForms: FormDefinitionResponseBeta[]
@@ -85,6 +87,9 @@ export class ContextHelper {
     private mergingEnabled: boolean = false
     private candidatesStringAttributes: string[] = []
     private fusionAggregationTime: number = 0
+    
+    // Counter to track number of account correlations performed
+    private correlationCounter: number = 0
 
     constructor(config: Config) {
         this.config = config
@@ -96,6 +101,7 @@ export class ContextHelper {
         // this.currentIdentities = []
         this.accounts = []
         this.authoritativeAccounts = []
+        this.accountSourceMap = new Map<string, Account[]>()
         this.uniqueForms = []
         this.uniqueFormInstances = []
         this.editForms = []
@@ -183,12 +189,14 @@ export class ContextHelper {
         this.identitiesById = new Map()
         this.accounts = []
         this.authoritativeAccounts = []
+        this.accountSourceMap = new Map<string, Account[]>()
         // this.currentIdentities = []
         this.uniqueForms = []
         this.uniqueFormInstances = []
         this.editForms = []
         this.editFormInstances = []
         this.errors = []
+        this.correlationCounter = 0
         this.initiated = 'lazy'
 
         if (!lazy) {
@@ -265,6 +273,7 @@ export class ContextHelper {
         this.config.merging_map.map((x) => `attributes.${x.identity}`).forEach((x) => attributes.add(x))
         this.config.merging_attributes.map((x) => `attributes.${x}`).forEach((x) => attributes.add(x))
 
+        // TODO: Add async pagination here
         const identities = await this.client.listIdentities([...attributes])
         identities.forEach((x) => {
             // make sure attributes exists before adding to map
@@ -306,6 +315,7 @@ export class ContextHelper {
         const c = 'fetchAccounts'
 
         logger.info(lm('Fetching existing accounts.', c))
+        // TODO: Add async pagination here
         const accounts = await this.client.listAccountsBySource(this.source!.id!)
 
         for (const account of accounts) {
@@ -372,7 +382,35 @@ export class ContextHelper {
         const c = 'fetchAuthoritativeAccounts'
 
         logger.info(lm('Fetching authoritative accounts.', c))
+        // TODO: Add async pagination here
         this.authoritativeAccounts = await this.client.listAccounts(this.sources.map((x) => x.id!))
+        
+        // Build the account source map for faster lookups
+        logger.debug(lm('Building account source map for faster lookups.', c))
+        this.buildAccountSourceMap()
+    }
+    
+    private buildAccountSourceMap(): void {
+        // Clear existing map
+        this.accountSourceMap.clear()
+        
+        // For each account ID, group accounts by source
+        for (const account of this.accounts) {
+            if (!account.attributes?.accounts) continue;
+            
+            for (const accountId of account.attributes.accounts) {
+                // Get all accounts matching this accountId for each source
+                const sourceAccounts = this.authoritativeAccounts.filter(
+                    x => this.config.sources.includes(x.sourceName) && x.id === accountId
+                );
+                
+                if (sourceAccounts.length > 0) {
+                    this.accountSourceMap.set(accountId, sourceAccounts);
+                }
+            }
+        }
+        
+        logger.debug(lm(`Built account source map with ${this.accountSourceMap.size} entries.`, 'buildAccountSourceMap'))
     }
 
     setUUID(account: Account) {
@@ -416,6 +454,16 @@ export class ContextHelper {
         }
 
     
+        // Log the total number of correlations performed during this batch processing
+        if (this.correlationCounter > 0) {
+            logger.info(lm(`Performed ${this.correlationCounter} account correlations in total. These are expensive API operations that can impact performance.`, c));
+        } else {
+            logger.info(lm(`No account correlations were needed during this batch processing.`, c));
+        }
+        
+        // Reset counter for next batch
+        const totalCorrelations = this.correlationCounter;
+        this.correlationCounter = 0;
         this.accounts = [];
     
         return uniqueAccounts;
@@ -430,6 +478,11 @@ export class ContextHelper {
             results.push(...processedChunk);
             const chunkEndTime = performance.now();
             logger.debug(`Chunk ${i / concurrency + 1} processing time: ${(chunkEndTime - chunkStartTime).toFixed(0)}ms`);
+            
+            // Log interim correlation count if any correlations happened in this chunk
+            if (this.correlationCounter > 0) {
+                logger.debug(`Performed ${this.correlationCounter} correlations so far`);
+            }
         }
         return results;
     }
@@ -473,12 +526,14 @@ export class ContextHelper {
             sourceAccounts.push(account)
         } else {
             if (this.initiated === 'full') {
-                // TODO: Store this in a map ahead of time for faster access and remove filter
-                for (const sourceName of this.config.sources) {
-                    const accounts = this.authoritativeAccounts.filter(
-                        (x) => x.sourceName === sourceName && account.attributes!.accounts.includes(x.id)
-                    )
-                    sourceAccounts = sourceAccounts.concat(accounts)
+                // Use the account source map for faster lookups
+                if (account.attributes?.accounts) {
+                    for (const accountId of account.attributes.accounts) {
+                        const mappedAccounts = this.accountSourceMap.get(accountId);
+                        if (mappedAccounts) {
+                            sourceAccounts = sourceAccounts.concat(mappedAccounts);
+                        }
+                    }
                 }
             } else {
                 const accounts = await this.client.getAccountsByIdentity(account.identityId!)
@@ -490,6 +545,8 @@ export class ContextHelper {
     }
 
     async correlateAccount(identityId: string, accountId: string): Promise<void> {
+        // Increment correlation counter when correlating an account
+        this.correlationCounter++
         await this.client.correlateAccount(identityId, accountId)
     }
 
@@ -537,19 +594,28 @@ export class ContextHelper {
             needsRefresh = false
         }
 
-        for (const acc of account.attributes!.accounts as string[]) {
-            try {
-                if (!accountIds.includes(acc)) {
-                    const sourceAccount = await this.getSourceAccount(acc)
-                    if (sourceAccount && sourceAccount.uncorrelated) {
-                        logger.debug(lm(`Correlating ${acc} account with ${account.identity?.name}.`, c, 1))
-                        const response = await this.client.correlateAccount(account.identityId! as string, acc)
-                        sourceAccounts.push(sourceAccount)
-                        accountIds.push(acc)
+        // The following loop checks each account in the accounts list to see if it needs correlation
+        // Correlation happens when:
+        // 1. The account ID exists in the fusion account's attributes.accounts list
+        // 2. But it is NOT in the identity's accounts list (accountIds) 
+        // 3. AND the account is marked as uncorrelated
+        if (!account.uncorrelated) {
+            for (const acc of account.attributes!.accounts as string[]) {
+                try {
+                    if (!accountIds.includes(acc)) {
+                        // This account ID is in the fusion account but not in the identity's accounts list
+                        const sourceAccount = await this.getSourceAccount(acc)
+                        if (sourceAccount && sourceAccount.uncorrelated) {
+                            // This is the slow operation - correlating an uncorrelated account with an identity
+                            logger.debug(lm(`Correlating ${acc} account with ${account.identity?.name}.`, c, 1))
+                            const response = await this.correlateAccount(account.identityId! as string, acc)
+                            sourceAccounts.push(sourceAccount)
+                            accountIds.push(acc)
+                        }
                     }
+                } catch (e) {
+                    logger.error(lm(`Failed to correlate ${acc} account with ${account.identity?.name}.`, c, 1))
                 }
-            } catch (e) {
-                logger.error(lm(`Failed to correlate ${acc} account with ${account.identity?.name}.`, c, 1))
             }
         }
         account.attributes!.accounts = accountIds
