@@ -50,7 +50,7 @@ import {
     TransformRead,
 } from 'sailpoint-api-client'
 import { URL } from 'url'
-import { TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
+import { RETRIES, TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
 import { retriesConfig, throttleConfig } from './axios'
 
 const sleep = (ms: number) => {
@@ -68,7 +68,7 @@ async function asyncBatchPaginate<T, P = any>(
     fetchFunction: (params: P) => Promise<{ data: T[] }>,
     params: P = {} as P,
     batchSize = 250,
-    maxParallelRequests = 10
+    maxParallelRequests = 16
 ): Promise<T[]> {
     // Collection to store all fetched items
     let allItems: T[] = []
@@ -108,12 +108,52 @@ async function asyncBatchPaginate<T, P = any>(
                 offset: currentOffset,
             } as P
 
-            const batchPromise = fetchFunction(batchParams)
+            // Function to handle retries with exponential backoff
+            const executeWithRetry = async (params: P, retryCount = 0): Promise<{ data: T[] }> => {
+                try {
+                    return await fetchFunction(params)
+                } catch (error: any) {
+                    // Check if it's a 429 error or other retryable error
+                    if ((error.response?.status === 429 || axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)) 
+                        && retryCount < RETRIES) {
+                        
+                        let waitTime = 1000 * Math.pow(2, retryCount) // Exponential backoff
+                        
+                        // If it's a 429, use the retry-after header if available
+                        if (error.response?.status === 429 && error.response.headers['retry-after']) {
+                            waitTime = parseInt(error.response.headers['retry-after']) * 1000
+                        }
+                        
+                        logger.info(`Retry ${retryCount + 1}/${RETRIES} for batch request after waiting ${waitTime}ms`)
+                        
+                        // Wait and then retry
+                        await new Promise(resolve => setTimeout(resolve, waitTime))
+                        return executeWithRetry(params, retryCount + 1)
+                    }
+                    
+                    // If we've exhausted retries or it's not a retryable error, rethrow
+                    logger.error(`Request failed after ${retryCount} retries: ${error.message}`)
+                    throw error
+                }
+            }
+            
+            // Use our retry-enabled function
+            const batchPromise = executeWithRetry(batchParams)
             batchPromises.push(batchPromise)
         }
 
-        // Wait for all parallel requests to complete
-        const batchResponses = await Promise.all(batchPromises)
+        // Wait for all parallel requests to complete, handling any failures
+        const batchResults = await Promise.allSettled(batchPromises)
+        const batchResponses = batchResults
+            .filter(result => result.status === 'fulfilled')
+            .map(result => (result as PromiseFulfilledResult<{ data: T[] }>).value)
+        
+        // Log failed requests
+        const failedCount = batchResults.filter(result => result.status === 'rejected').length
+        if (failedCount > 0) {
+            logger.warn(`${failedCount} batch requests failed after retries`)
+        }
+        
         logger.info(`Fetched ${batchResponses.length} batches with items total: ${allItems.length + batchResponses.reduce((sum, r) => sum + (r.data?.length || 0), 0)}`) 
         // Process all responses
         hasMoreData = false
