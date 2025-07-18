@@ -1,7 +1,7 @@
 export const REQUESTSPERSECOND = 100
 export const TOKEN_URL_PATH = '/oauth/token'
 export const PROCESSINGWAIT = 60 * 1000
-export const RETRIES = 5
+export const RETRIES = 20
 export const WORKFLOW_NAME = 'Email Sender'
 export const TRANSFORM_NAME = 'Fusion Transform'
 export const PADDING = '   '

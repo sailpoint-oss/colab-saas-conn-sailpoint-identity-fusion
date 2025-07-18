@@ -1,5 +1,8 @@
 import axios, { AxiosInstance } from 'axios'
 import axiosRetry from 'axios-retry'
+import {
+    logger,
+} from '@sailpoint/connector-sdk'
 import axiosThrottle from 'axios-request-throttle'
 import {
     Configuration,
@@ -47,11 +50,136 @@ import {
     TransformRead,
 } from 'sailpoint-api-client'
 import { URL } from 'url'
-import { TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
+import { RETRIES, TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
 import { retriesConfig, throttleConfig } from './axios'
 
 const sleep = (ms: number) => {
     return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Generic async pagination utility that fetches data in parallel batches
+ * @param fetchFunction - The function to call for each batch
+ * @param batchSize - Size of each batch (default: 250)
+ * @param maxParallelRequests - Maximum number of parallel requests (default: 8)
+ * @returns - Array of all fetched items
+ */
+async function asyncBatchPaginate<T, P = any>(
+    fetchFunction: (params: P) => Promise<{ data: T[] }>,
+    params: P = {} as P,
+    batchSize = 250,
+    maxParallelRequests = 16
+): Promise<T[]> {
+    // Collection to store all fetched items
+    let allItems: T[] = []
+
+    // Make initial request to get first batch and potentially total count
+    const initialParams = {
+        ...params,
+        limit: batchSize,
+        offset: 0,
+    } as P
+
+    const initialResponse = await fetchFunction(initialParams)
+    const initialBatch = initialResponse.data || []
+    allItems = [...initialBatch]
+
+    // If the first batch is smaller than batchSize, we already have all data
+    if (initialBatch.length < batchSize) {
+        return allItems
+    }
+
+    // Start with offset after the first batch
+    let offset = batchSize
+    let hasMoreData = true
+
+    // Continue fetching batches in parallel until no more data
+    while (hasMoreData) {
+        // Create an array of promises for parallel requests
+        const batchPromises = []
+
+        for (let i = 0; i < maxParallelRequests; i++) {
+            const currentOffset = offset + i * batchSize
+
+            // Create a promise for each batch request
+            const batchParams = {
+                ...params,
+                limit: batchSize,
+                offset: currentOffset,
+            } as P
+
+            // Function to handle retries with exponential backoff
+            const executeWithRetry = async (params: P, retryCount = 0): Promise<{ data: T[] }> => {
+                try {
+                    return await fetchFunction(params)
+                } catch (error: any) {
+                    // Check if it's a 429 error or other retryable error
+                    if ((error.response?.status === 429 || axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)) 
+                        && retryCount < RETRIES) {
+                        
+                        let waitTime = 1000 * Math.pow(2, retryCount) // Exponential backoff
+                        
+                        // If it's a 429, use the retry-after header if available
+                        if (error.response?.status === 429 && error.response.headers['retry-after']) {
+                            waitTime = parseInt(error.response.headers['retry-after']) * 1000
+                        }
+                        
+                        logger.info(`Retry ${retryCount + 1}/${RETRIES} for batch request after waiting ${waitTime}ms`)
+                        
+                        // Wait and then retry
+                        await new Promise(resolve => setTimeout(resolve, waitTime))
+                        return executeWithRetry(params, retryCount + 1)
+                    }
+                    
+                    // If we've exhausted retries or it's not a retryable error, rethrow
+                    logger.error(`Request failed after ${retryCount} retries: ${error.message}`)
+                    throw error
+                }
+            }
+            
+            // Use our retry-enabled function
+            const batchPromise = executeWithRetry(batchParams)
+            batchPromises.push(batchPromise)
+        }
+
+        // Wait for all parallel requests to complete, handling any failures
+        const batchResults = await Promise.allSettled(batchPromises)
+        const batchResponses = batchResults
+            .filter(result => result.status === 'fulfilled')
+            .map(result => (result as PromiseFulfilledResult<{ data: T[] }>).value)
+        
+        // Log failed requests
+        const failedCount = batchResults.filter(result => result.status === 'rejected').length
+        if (failedCount > 0) {
+            logger.warn(`${failedCount} batch requests failed after retries`)
+        }
+        
+        logger.info(`Fetched ${batchResponses.length} batches with items total: ${allItems.length + batchResponses.reduce((sum, r) => sum + (r.data?.length || 0), 0)}`) 
+        // Process all responses
+        hasMoreData = false
+
+        for (const response of batchResponses) {
+            const batchData = response.data || []
+
+            // Add the batch to our collected items
+            allItems = [...allItems, ...batchData]
+
+            // Check if this batch indicates more data available
+            if (batchData.length === batchSize) {
+                hasMoreData = true
+            }
+        }
+
+        // Update offset for next parallel batch
+        offset += batchSize * maxParallelRequests
+
+        // If no batch was full size, we've reached the end
+        if (!hasMoreData) {
+            break
+        }
+    }
+
+    return allItems
 }
 
 export class SDKClient {
@@ -78,7 +206,7 @@ export class SDKClient {
             },
         }
 
-        const response = await Paginator.paginateSearchApi(api, search)
+        const response = await Paginator.paginateSearchApi(api, search, 10000)
         return response.data as IdentityDocument[]
     }
 
@@ -170,13 +298,19 @@ export class SDKClient {
     async listAccountsBySource(id: string): Promise<Account[]> {
         const api = new AccountsApi(this.config)
         const filters = `sourceId eq "${id}"`
-        const search = async (requestParameters?: AccountsApiListAccountsRequest | undefined) => {
-            return await api.listAccounts({ ...requestParameters, filters })
+
+        // Using async pagination with parallel requests
+        const fetchFunction = async (params: { limit: number; offset: number }) => {
+            const response = await api.listAccounts({
+                ...params,
+                filters,
+            })
+            return response
         }
 
-        const response = await Paginator.paginate(api, search)
-
-        return response.data
+        // Get all accounts using parallel batch pagination
+        const accounts = await asyncBatchPaginate<Account>(fetchFunction)
+        return accounts
     }
 
     async getAccountBySourceAndNativeIdentity(id: string, nativeIdentity: string): Promise<Account | undefined> {
@@ -226,13 +360,19 @@ export class SDKClient {
             const sourceValues = sourceIds.map((x) => `"${x}"`).join(', ')
             filters = `sourceId in (${sourceValues})`
         }
-        const search = async (requestParameters?: AccountsApiListAccountsRequest | undefined) => {
-            return await api.listAccounts({ ...requestParameters, filters })
+
+        // Using async pagination with parallel requests
+        const fetchFunction = async (params: { limit: number; offset: number }) => {
+            const response = await api.listAccounts({
+                ...params,
+                filters,
+            })
+            return response
         }
 
-        const response = await Paginator.paginate(api, search)
-
-        return response.data
+        // Get all accounts using parallel batch pagination
+        const accounts = await asyncBatchPaginate<Account>(fetchFunction)
+        return accounts
     }
 
     async getAccount(id: string): Promise<Account | undefined> {
@@ -351,7 +491,6 @@ export class SDKClient {
         } catch (error) {
             return {}
         }
-        
     }
 
     async createForm(form: CreateFormDefinitionRequestBeta): Promise<FormDefinitionResponseBeta> {
