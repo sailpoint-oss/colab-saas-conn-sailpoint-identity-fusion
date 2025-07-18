@@ -1,5 +1,8 @@
 import axios, { AxiosInstance } from 'axios'
 import axiosRetry from 'axios-retry'
+import {
+    logger,
+} from '@sailpoint/connector-sdk'
 import axiosThrottle from 'axios-request-throttle'
 import {
     Configuration,
@@ -54,6 +57,91 @@ const sleep = (ms: number) => {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * Generic async pagination utility that fetches data in parallel batches
+ * @param fetchFunction - The function to call for each batch
+ * @param batchSize - Size of each batch (default: 250)
+ * @param maxParallelRequests - Maximum number of parallel requests (default: 8)
+ * @returns - Array of all fetched items
+ */
+async function asyncBatchPaginate<T, P = any>(
+    fetchFunction: (params: P) => Promise<{ data: T[] }>,
+    params: P = {} as P,
+    batchSize = 250,
+    maxParallelRequests = 10
+): Promise<T[]> {
+    // Collection to store all fetched items
+    let allItems: T[] = []
+
+    // Make initial request to get first batch and potentially total count
+    const initialParams = {
+        ...params,
+        limit: batchSize,
+        offset: 0,
+    } as P
+
+    const initialResponse = await fetchFunction(initialParams)
+    const initialBatch = initialResponse.data || []
+    allItems = [...initialBatch]
+
+    // If the first batch is smaller than batchSize, we already have all data
+    if (initialBatch.length < batchSize) {
+        return allItems
+    }
+
+    // Start with offset after the first batch
+    let offset = batchSize
+    let hasMoreData = true
+
+    // Continue fetching batches in parallel until no more data
+    while (hasMoreData) {
+        // Create an array of promises for parallel requests
+        const batchPromises = []
+
+        for (let i = 0; i < maxParallelRequests; i++) {
+            const currentOffset = offset + i * batchSize
+
+            // Create a promise for each batch request
+            const batchParams = {
+                ...params,
+                limit: batchSize,
+                offset: currentOffset,
+            } as P
+
+            const batchPromise = fetchFunction(batchParams)
+            batchPromises.push(batchPromise)
+        }
+
+        // Wait for all parallel requests to complete
+        const batchResponses = await Promise.all(batchPromises)
+        logger.info(`Fetched ${batchResponses.length} batches with items total: ${allItems.length + batchResponses.reduce((sum, r) => sum + (r.data?.length || 0), 0)}`) 
+        // Process all responses
+        hasMoreData = false
+
+        for (const response of batchResponses) {
+            const batchData = response.data || []
+
+            // Add the batch to our collected items
+            allItems = [...allItems, ...batchData]
+
+            // Check if this batch indicates more data available
+            if (batchData.length === batchSize) {
+                hasMoreData = true
+            }
+        }
+
+        // Update offset for next parallel batch
+        offset += batchSize * maxParallelRequests
+
+        // If no batch was full size, we've reached the end
+        if (!hasMoreData) {
+            break
+        }
+    }
+
+    return allItems
+}
+
 export class SDKClient {
     private config: Configuration
 
@@ -78,7 +166,7 @@ export class SDKClient {
             },
         }
 
-        const response = await Paginator.paginateSearchApi(api, search)
+        const response = await Paginator.paginateSearchApi(api, search, 10000)
         return response.data as IdentityDocument[]
     }
 
@@ -170,13 +258,19 @@ export class SDKClient {
     async listAccountsBySource(id: string): Promise<Account[]> {
         const api = new AccountsApi(this.config)
         const filters = `sourceId eq "${id}"`
-        const search = async (requestParameters?: AccountsApiListAccountsRequest | undefined) => {
-            return await api.listAccounts({ ...requestParameters, filters })
+
+        // Using async pagination with parallel requests
+        const fetchFunction = async (params: { limit: number; offset: number }) => {
+            const response = await api.listAccounts({
+                ...params,
+                filters,
+            })
+            return response
         }
 
-        const response = await Paginator.paginate(api, search)
-
-        return response.data
+        // Get all accounts using parallel batch pagination
+        const accounts = await asyncBatchPaginate<Account>(fetchFunction)
+        return accounts
     }
 
     async getAccountBySourceAndNativeIdentity(id: string, nativeIdentity: string): Promise<Account | undefined> {
@@ -226,14 +320,19 @@ export class SDKClient {
             const sourceValues = sourceIds.map((x) => `"${x}"`).join(', ')
             filters = `sourceId in (${sourceValues})`
         }
-        const search = async (requestParameters?: AccountsApiListAccountsRequest | undefined) => {
-            return await api.listAccounts({ ...requestParameters, filters })
+
+        // Using async pagination with parallel requests
+        const fetchFunction = async (params: { limit: number; offset: number }) => {
+            const response = await api.listAccounts({
+                ...params,
+                filters,
+            })
+            return response
         }
 
-        // TODO : Add async pagination here
-        const response = await Paginator.paginate(api, search)
-
-        return response.data
+        // Get all accounts using parallel batch pagination
+        const accounts = await asyncBatchPaginate<Account>(fetchFunction)
+        return accounts
     }
 
     async getAccount(id: string): Promise<Account | undefined> {
@@ -352,7 +451,6 @@ export class SDKClient {
         } catch (error) {
             return {}
         }
-        
     }
 
     async createForm(form: CreateFormDefinitionRequestBeta): Promise<FormDefinitionResponseBeta> {
