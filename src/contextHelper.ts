@@ -627,8 +627,8 @@ export class ContextHelper {
                     logger.error(lm(`Failed to correlate ${acc} account with ${account.identity?.name}.`, c, 1))
                 }
             }
+            account.attributes!.accounts = accountIds
         }
-        account.attributes!.accounts = accountIds
 
         if (account.attributes!.accounts.length === 0) {
             needsRefresh = false
