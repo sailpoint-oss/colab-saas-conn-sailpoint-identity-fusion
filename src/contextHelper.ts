@@ -172,6 +172,9 @@ export class ContextHelper {
         }
 
         const owner = getOwnerFromSource(this.source)
+        if (!owner) {
+            throw new ConnectorError('Source owner is required')
+        }
         const wfName = `${WORKFLOW_NAME} (${this.config!.cloudDisplayName})`
         this.emailer = await this.getEmailWorkflow(wfName, owner)
 
@@ -399,7 +402,7 @@ export class ContextHelper {
             for (const accountId of account.attributes.accounts) {
                 // Get all accounts matching this accountId for each source
                 const sourceAccounts = this.authoritativeAccounts.filter(
-                    (x) => this.config.sources.includes(x.sourceName) && x.id === accountId
+                    (x) => this.config.sources.includes(x.sourceName!) && x.id === accountId
                 )
 
                 if (sourceAccounts.length > 0) {
@@ -471,7 +474,6 @@ export class ContextHelper {
         }
 
         // Reset counter for next batch
-        const totalCorrelations = this.correlationCounter
         this.correlationCounter = 0
         this.accounts = []
 
@@ -548,7 +550,7 @@ export class ContextHelper {
                 }
             } else {
                 const accounts = await this.client.getAccountsByIdentity(account.identityId!)
-                sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.sourceName))
+                sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.sourceName!))
             }
         }
 
@@ -564,7 +566,7 @@ export class ContextHelper {
     private async getSourceAccount(id: string): Promise<Account | undefined> {
         if (this.initiated === 'lazy') {
             const account = await this.client.getAccount(id)
-            if (account && this.config.sources.includes(account.sourceName)) {
+            if (account && account.sourceName && this.config.sources.includes(account.sourceName)) {
                 return account
             }
         } else {
@@ -618,13 +620,14 @@ export class ContextHelper {
                         if (sourceAccount && sourceAccount.uncorrelated) {
                             // This is the slow operation - correlating an uncorrelated account with an identity
                             logger.debug(lm(`Correlating ${acc} account with ${account.identity?.name}.`, c, 1))
-                            const response = await this.correlateAccount(account.identityId! as string, acc)
+                            await this.correlateAccount(account.identityId! as string, acc)
                             sourceAccounts.push(sourceAccount)
                             accountIds.push(acc)
                         }
                     }
-                } catch (e) {
+                } catch (error) {
                     logger.error(lm(`Failed to correlate ${acc} account with ${account.identity?.name}.`, c, 1))
+                    logger.error(error)
                 }
             }
             account.attributes!.accounts = accountIds
@@ -966,6 +969,9 @@ export class ContextHelper {
     async createEditForm(account: UniqueAccount): Promise<FormDefinitionResponseBeta> {
         const name = this.getEditFormName(account.attributes.uniqueID as string)
         const owner = this.source!.owner
+        if (!owner) {
+            throw new ConnectorError('Source owner is required')
+        }
         const attributes = Object.keys(account.attributes).filter((x) => !reservedAttributes.includes(x))
         const form = new EditForm(name, owner, account, attributes)
         const response = await this.client.createForm(form)
@@ -1149,6 +1155,9 @@ export class ContextHelper {
                 if (similarMatches.length > 0) {
                     logger.debug(lm(`Similar matches found`, c, 1))
                     const formName = this.getUniqueFormName(uncorrelatedAccount, this.source!.name)
+                    if (!this.source!.owner) {
+                        throw new ConnectorError('Source owner is required')
+                    }
                     const formOwner = { id: this.source!.owner.id, type: this.source!.owner.type }
                     const accountAttributes = buildAccountAttributesObject(
                         uncorrelatedAccount,
@@ -1313,7 +1322,6 @@ export class ContextHelper {
     async processUniqueFormInstance(
         formInstance: FormInstanceResponseBeta
     ): Promise<{ decision: string; account: string; message: string }> {
-        const c = 'processUniqueFormInstance'
         let message = ''
         const decision = formInstance.formData!['identities'].toString()
         const account = (formInstance.formInput!['account'] as any).value
@@ -1603,9 +1611,16 @@ export class ContextHelper {
         if (this.errors.length > 0) {
             const message = composeErrorMessage(context, input, this.errors)
 
-            const ownerID = this.getSource().owner.id as string
+            const source = this.getSource()
+            if (!source.owner) {
+                throw new ConnectorError('Source owner is required')
+            }
+            const ownerID = source.owner.id as string
             const recipient = await this.client.getIdentityBySearch(ownerID)
-            const email = new ErrorEmail(this.getSource(), recipient!.email!, message)
+            if (!recipient || !recipient.email) {
+                throw new ConnectorError('Recipient email is required')
+            }
+            const email = new ErrorEmail(source, recipient.email, message)
 
             await this.sendEmail(email)
         }
