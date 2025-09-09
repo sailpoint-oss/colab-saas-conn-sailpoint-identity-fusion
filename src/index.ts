@@ -205,7 +205,9 @@ export const connector = async () => {
             //PROCESS UNCORRELATED ACCOUNTS
             logger.info('Processing uncorrelated accounts.')
             const reviewerIDs = ctx.listAllReviewerIDs()
+            let processed = 0;
             for (const uncorrelatedAccount of pendingAccounts) {
+                processed++;
                 try {
                     const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
                     if (uniqueForm && reviewerIDs.length > 0) {
@@ -214,6 +216,9 @@ export const connector = async () => {
                     }
                 } catch (e) {
                     ctx.handleError(e)
+                }
+                if (processed % 1000 === 0) {
+                    logger.info(`Processed ${processed} uncorrelated accounts so far...`)
                 }
             }
             // console.timeLog('stdAccountList', 'uncorrelated accounts')

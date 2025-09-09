@@ -13,7 +13,10 @@ import * as datefns from 'date-fns'
  */
 
 // Cache to store the maximum counter value for each baseId
-const maxCounterCache = new Map<string, number>()
+const maxCounterCache = new Map<string, number>();
+
+// Cache for compiled VLT templates to avoid re-parsing and re-compilation
+const templateCache = new Map<string, any>();
 export const buildUniqueID = async (
     account: Account,
     currentIDs: Set<string>,
@@ -22,11 +25,17 @@ export const buildUniqueID = async (
 ): Promise<string> => {
     const c = 'buildUniqueID'
 
-    let template = velocityjs.parse(config.uid_template)
-    if (!template.find((x) => x.id === 'counter')) {
-        template = velocityjs.parse(config.uid_template + '$counter')
+    // Check if we have a cached compiled template
+    let velocity = templateCache.get(config.uid_template)
+    if (!velocity) {
+        // Parse and compile template only once, then cache it
+        let template = velocityjs.parse(config.uid_template)
+        if (!template.find((x) => x.id === 'counter')) {
+            template = velocityjs.parse(config.uid_template + '$counter')
+        }
+        velocity = new velocityjs.Compile(template)
+        templateCache.set(config.uid_template, velocity)
     }
-    const velocity = new velocityjs.Compile(template)
 
     // Generate the base ID (without a counter)
     //logger.debug(lm('Building context for base ID', c, 2))

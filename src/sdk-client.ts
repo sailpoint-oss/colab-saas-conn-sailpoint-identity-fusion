@@ -68,7 +68,7 @@ async function asyncBatchPaginate<T, P = any>(
     fetchFunction: (params: P) => Promise<{ data: T[] }>,
     params: P = {} as P,
     batchSize = 250,
-    maxParallelRequests = 16
+    maxParallelRequests = 8
 ): Promise<T[]> {
     // Collection to store all fetched items
     let allItems: T[] = []

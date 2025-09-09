@@ -75,6 +75,12 @@ export class ContextHelper {
     private authoritativeAccounts: Account[]
     // Map of account ID to source accounts for faster lookup
     private accountSourceMap: Map<string, Account[]>
+    // Map of account ID to authoritative accounts for O(1) lookup
+    private authoritativeAccountsById: Map<string, Account[]>
+    // Map of identity ID to accounts for O(1) lookup instead of find operations
+    private accountsByIdentityId: Map<string, Account>
+    // Map for config merging_map lookups by identity attribute
+    private mergingMapByIdentity: Map<string, any>
     private uniqueForms: FormDefinitionResponseBeta[]
     private uniqueFormInstances: FormInstanceResponseBeta[]
     private editForms: FormDefinitionResponseBeta[]
@@ -102,6 +108,9 @@ export class ContextHelper {
         this.accounts = []
         this.authoritativeAccounts = []
         this.accountSourceMap = new Map<string, Account[]>()
+        this.authoritativeAccountsById = new Map<string, Account[]>()
+        this.accountsByIdentityId = new Map<string, Account>()
+        this.mergingMapByIdentity = new Map<string, any>()
         this.uniqueForms = []
         this.uniqueFormInstances = []
         this.editForms = []
@@ -114,12 +123,19 @@ export class ContextHelper {
         this.client = new SDKClient(this.config)
 
         this.config!.merging_map ??= []
+        // Build merging map lookup for faster access
+        this.buildMergingMapLookup()
+
+        // Create getScore function with closure to capture the mergingMapByIdentity
+        const mergingMapRef = this.mergingMapByIdentity
+        const configRef = this.config
+        
         this.config.getScore = (attribute?: string): number => {
             let score
-            if (this.config.global_merging_score) {
-                score = this.config.merging_score
+            if (configRef.global_merging_score) {
+                score = configRef.merging_score
             } else {
-                const attributeConfig = this.config.merging_map.find((x) => x.identity === attribute)
+                const attributeConfig = mergingMapRef.get(attribute!)
                 score = attributeConfig?.merging_score
             }
 
@@ -192,6 +208,9 @@ export class ContextHelper {
         this.accounts = []
         this.authoritativeAccounts = []
         this.accountSourceMap = new Map<string, Account[]>()
+        this.authoritativeAccountsById = new Map<string, Account[]>()
+        this.accountsByIdentityId = new Map<string, Account>()
+        this.mergingMapByIdentity = new Map<string, any>()
         // this.currentIdentities = []
         this.uniqueForms = []
         this.uniqueFormInstances = []
@@ -364,11 +383,13 @@ export class ContextHelper {
     }
 
     getFusionAccountByIdentity(identity: IdentityDocument): Account | undefined {
-        return this.accounts.find((x) => x.identityId === identity.id)
+        // Use O(1) Map lookup instead of O(n) find operation
+        return this.accountsByIdentityId.get(identity.id)
     }
 
     getIdentityAccount(identity: IdentityDocument): Account | undefined {
-        return this.accounts.find((x) => x.identityId === identity.id)
+        // Use O(1) Map lookup instead of O(n) find operation
+        return this.accountsByIdentityId.get(identity.id)
     }
 
     listCurrentIdentityIDs(): string[] {
@@ -386,9 +407,35 @@ export class ContextHelper {
 
         this.authoritativeAccounts = await this.client.listAccounts(this.sources.map((x) => x.id!))
 
+        // Build the authoritative accounts lookup map for O(1) access
+        logger.debug(lm('Building authoritative accounts lookup map for faster access.', c))
+        this.buildAuthoritativeAccountsLookup()
+
         // Build the account source map for faster lookups
         logger.debug(lm('Building account source map for faster lookups.', c))
         this.buildAccountSourceMap()
+
+        // Build accounts by identity ID map for faster lookups
+        logger.debug(lm('Building accounts by identity ID map for faster lookups.', c))
+        this.buildAccountsByIdentityIdLookup()
+    }
+
+    private buildAuthoritativeAccountsLookup(): void {
+        // Clear existing map
+        this.authoritativeAccountsById.clear()
+
+        // Group authoritative accounts by ID for O(1) lookup
+        for (const account of this.authoritativeAccounts) {
+            if (!account.id) continue
+
+            const existingAccounts = this.authoritativeAccountsById.get(account.id) || []
+            existingAccounts.push(account)
+            this.authoritativeAccountsById.set(account.id, existingAccounts)
+        }
+
+        logger.debug(
+            lm(`Built authoritative accounts lookup map with ${this.authoritativeAccountsById.size} entries.`, 'buildAuthoritativeAccountsLookup')
+        )
     }
 
     private buildAccountSourceMap(): void {
@@ -400,19 +447,51 @@ export class ContextHelper {
             if (!account.attributes?.accounts) continue
 
             for (const accountId of account.attributes.accounts) {
-                // Get all accounts matching this accountId for each source
-                const sourceAccounts = this.authoritativeAccounts.filter(
-                    (x) => this.config.sources.includes(x.sourceName!) && x.id === accountId
-                )
-
-                if (sourceAccounts.length > 0) {
-                    this.accountSourceMap.set(accountId, sourceAccounts)
+                // Use O(1) lookup instead of O(n) filter operation
+                const candidateAccounts = this.authoritativeAccountsById.get(accountId)
+                if (candidateAccounts) {
+                    // Filter only by source name since ID already matches
+                    const sourceAccounts = candidateAccounts.filter((x) => this.config.sources.includes(x.sourceName))
+                    
+                    if (sourceAccounts.length > 0) {
+                        this.accountSourceMap.set(accountId, sourceAccounts)
+                    }
                 }
             }
         }
 
         logger.debug(
             lm(`Built account source map with ${this.accountSourceMap.size} entries.`, 'buildAccountSourceMap')
+        )
+    }
+
+    private buildMergingMapLookup(): void {
+        // Clear existing map
+        this.mergingMapByIdentity.clear()
+
+        // Build lookup map for merging_map by identity attribute
+        for (const mergingConfig of this.config.merging_map) {
+            this.mergingMapByIdentity.set(mergingConfig.identity, mergingConfig)
+        }
+
+        logger.debug(
+            lm(`Built merging map lookup with ${this.mergingMapByIdentity.size} entries.`, 'buildMergingMapLookup')
+        )
+    }
+
+    private buildAccountsByIdentityIdLookup(): void {
+        // Clear existing map
+        this.accountsByIdentityId.clear()
+
+        // Build lookup map for accounts by identity ID
+        for (const account of this.accounts) {
+            if (account.identityId) {
+                this.accountsByIdentityId.set(account.identityId, account)
+            }
+        }
+
+        logger.debug(
+            lm(`Built accounts by identity ID lookup with ${this.accountsByIdentityId.size} entries.`, 'buildAccountsByIdentityIdLookup')
         )
     }
 
@@ -677,7 +756,7 @@ export class ContextHelper {
 
             attributes: for (const attrDef of schema.attributes) {
                 if (!reservedAttributes.includes(attrDef.name)) {
-                    const attrConf = this.config.merging_map.find((x) => x.identity === attrDef.name)
+                    const attrConf = this.mergingMapByIdentity.get(attrDef.name)
                     const attributeMerge = attrConf?.attributeMerge || this.config.attributeMerge
                     let multiValue: string[] = []
                     let firstSource = true
@@ -1132,7 +1211,8 @@ export class ContextHelper {
                 const currentAccount = this.getFusionAccountByIdentity(identicalMatch)
                 if (currentAccount) {
                     uniqueAccount = currentAccount
-                    uniqueAccount = this.accounts.find((x) => x.identityId === identicalMatch.id) as Account
+                    // Keep the original logic but use optimized Map lookup instead of find
+                    uniqueAccount = this.accountsByIdentityId.get(identicalMatch.id) as Account
                     uniqueAccount.modified = new Date(0).toISOString()
                     message = datedMessage('Identical match found.', uncorrelatedAccount)
                     status = 'auto'
