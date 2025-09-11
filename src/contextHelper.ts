@@ -1123,7 +1123,10 @@ export class ContextHelper {
             attributes: for (const attribute of Object.keys(accountAttributes)) {
                 const iValue = accountAttributes[attribute] as string
                 const cValue = candidate.attributes![attribute] as string
-                if (iValue && cValue) {
+                
+                // Only evaluate when both attributes contain a value.
+                // Skip if only one is NULL
+                if (iValue && cValue && iValue.trim() != "" && cValue.trim() != "") {
                     const similarity = lig3(iValue, cValue)
                     const score = similarity * 100
                     if (!this.config.global_merging_score) {
@@ -1132,7 +1135,10 @@ export class ContextHelper {
                             continue candidates
                         }
                     }
+
                     scores.set(attribute, score)
+                } else if (iValue != cValue) {
+                    continue candidates
                 }
             }
 
