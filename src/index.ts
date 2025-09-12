@@ -32,6 +32,7 @@ import { PROCESSINGWAIT } from './constants'
 import { UniqueAccount } from './model/account'
 import { Config } from './model/config'
 import { UniqueForm } from './model/form'
+import { batch } from './utils/batch'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
@@ -209,28 +210,17 @@ export const connector = async () => {
             let processed = 0;
             // Batch the uncorrelated account processing
             const uniqueForms = new Map<string, UniqueForm>();
-            const batchSize = 1000 
-            for (let i = 0; i < pendingAccounts.length; i += batchSize) {
-                const batch = pendingAccounts.slice(i, i + batchSize)
-                const promises = batch.map(async (uncorrelatedAccount) => {
-                    try {
-                        const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
-                        if (uniqueForm && reviewerIDs.length > 0) {
-                            logger.debug(`Creating merging form`)
-                            uniqueForms.set(uniqueForm.name, uniqueForm);
-                        }
-                    } catch (e) {
-                        ctx.handleError(e)
+            await batch(pendingAccounts, async (uncorrelatedAccount) => {
+                try {
+                    const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
+                    if (uniqueForm && reviewerIDs.length > 0) {
+                        logger.debug(`Creating merging form`)
+                        uniqueForms.set(uniqueForm.name, uniqueForm);
                     }
-                })
-                await Promise.all(promises)
-
-                // Opens the event loop to ensure keepAlive is sent.
-                await new Promise(resolve => setTimeout(resolve, 5));
-
-                processed += batch.length
-                logger.info(`Processed ${processed} of ${pendingAccounts.length} uncorrelated accounts...`)
-            }
+                } catch (e) {
+                    ctx.handleError(e)
+                }
+            }, 1000, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`))
             // Moved out to process Web Requests in parallel.
             await ctx.createUniqueForms(uniqueForms)
 
