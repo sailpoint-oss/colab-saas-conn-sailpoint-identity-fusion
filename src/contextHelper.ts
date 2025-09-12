@@ -97,6 +97,8 @@ export class ContextHelper {
     // Counter to track number of account correlations performed
     private correlationCounter: number = 0
 
+    private accountsToCorrelate: Set<{identity: string, account: string}>
+
     constructor(config: Config) {
         this.config = config
         this.sources = []
@@ -118,6 +120,8 @@ export class ContextHelper {
         this.editFormInstances = []
         this.errors = []
         this.reviewerIDs = new Map<string, string[]>()
+
+        this.accountsToCorrelate = new Set<{identity: string, account: string}>()
 
         logger.debug(lm(`Initializing SDK client.`, this.c))
         this.client = new SDKClient(this.config)
@@ -576,6 +580,11 @@ export class ContextHelper {
                 logger.debug(`Performed ${this.correlationCounter} correlations so far`)
             }
         }
+
+        // Run correlations
+        logger.info(`Starting to correlate ${this.accountsToCorrelate.size} accounts`)
+        await this.client.batchCorrelateAccounts(Array.from(this.accountsToCorrelate.values()))
+        
         return results
     }
 
@@ -698,8 +707,7 @@ export class ContextHelper {
                         const sourceAccount = await this.getSourceAccount(acc)
                         if (sourceAccount && sourceAccount.uncorrelated) {
                             // This is the slow operation - correlating an uncorrelated account with an identity
-                            logger.debug(lm(`Correlating ${acc} account with ${account.identity?.name}.`, c, 1))
-                            await this.correlateAccount(account.identityId! as string, acc)
+                            this.accountsToCorrelate.add({identity: account.identityId!, account: acc})
                             sourceAccounts.push(sourceAccount)
                             accountIds.push(acc)
                         }

@@ -563,6 +563,14 @@ export class SDKClient {
         return response.data
     }
 
+    async batchCorrelateAccounts(correlationConfigs: {identity: string, account: string}[]) {
+        const correlations = await asyncBatchProcess(
+            correlationConfigs,
+            ({identity, account}: {identity: string, account: string}) => this.correlateAccount(identity, account)
+        )
+        return correlations
+    }
+
     async correlateAccount(identityId: string, id: string): Promise<object> {
         const api = new AccountsApi(this.config)
         const requestBody: JsonPatchOperation[] = [
