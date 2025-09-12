@@ -1032,6 +1032,15 @@ export class ContextHelper {
         return this.editForms
     }
 
+    async createUniqueForms(forms: Map<string, UniqueForm>) {
+        const uniqueFormNames = this.uniqueForms.map((x) => x.name)
+        const nonExistentForms = Array.from(forms.values()).filter((x) => !uniqueFormNames.includes(x.name))
+        const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
+        
+        const formsCreated = await this.client.batchCreateForms(nonExistentForms);
+        return [...formsCreated, ...existingForms]
+    }
+
     async createUniqueForm(form: UniqueForm): Promise<FormDefinitionResponseBeta> {
         const c = 'createUniqueForm'
         const existingForm = this.uniqueForms.find((x) => x.name === form.name)

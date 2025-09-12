@@ -31,6 +31,7 @@ import { ContextHelper } from './contextHelper'
 import { PROCESSINGWAIT } from './constants'
 import { UniqueAccount } from './model/account'
 import { Config } from './model/config'
+import { UniqueForm } from './model/form'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
@@ -206,21 +207,33 @@ export const connector = async () => {
             logger.info('Processing uncorrelated accounts.')
             const reviewerIDs = ctx.listAllReviewerIDs()
             let processed = 0;
-            for (const uncorrelatedAccount of pendingAccounts) {
-                processed++;
-                try {
-                    const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
-                    if (uniqueForm && reviewerIDs.length > 0) {
-                        logger.debug(`Creating merging form`)
-                        const form = await ctx.createUniqueForm(uniqueForm)
+            // Batch the uncorrelated account processing
+            const uniqueForms = new Map<string, UniqueForm>();
+            const batchSize = 1000 
+            for (let i = 0; i < pendingAccounts.length; i += batchSize) {
+                const batch = pendingAccounts.slice(i, i + batchSize)
+                const promises = batch.map(async (uncorrelatedAccount) => {
+                    try {
+                        const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
+                        if (uniqueForm && reviewerIDs.length > 0) {
+                            logger.debug(`Creating merging form`)
+                            uniqueForms.set(uniqueForm.name, uniqueForm);
+                        }
+                    } catch (e) {
+                        ctx.handleError(e)
                     }
-                } catch (e) {
-                    ctx.handleError(e)
-                }
-                if (processed % 1000 === 0) {
-                    logger.info(`Processed ${processed} uncorrelated accounts so far...`)
-                }
+                })
+                await Promise.all(promises)
+
+                // Opens the event loop to ensure keepAlive is sent.
+                await new Promise(resolve => setTimeout(resolve, 5));
+
+                processed += batch.length
+                logger.info(`Processed ${processed} of ${pendingAccounts.length} uncorrelated accounts...`)
             }
+            // Moved out to process Web Requests in parallel.
+            await ctx.createUniqueForms(uniqueForms)
+
             // console.timeLog('stdAccountList', 'uncorrelated accounts')
 
             if (await ctx.isMergingEnabled()) {
