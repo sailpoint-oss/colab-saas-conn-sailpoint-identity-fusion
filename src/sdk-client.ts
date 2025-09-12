@@ -581,10 +581,11 @@ export class SDKClient {
     }
 
     async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[]): Promise<FormDefinitionResponseBeta[]> {
-        return await asyncBatchProcess(
+        const forms = await asyncBatchProcess(
             uniqueForms,
             this.createForm
         )
+        return forms
     }
 
     async createForm(form: CreateFormDefinitionRequestBeta): Promise<FormDefinitionResponseBeta> {
