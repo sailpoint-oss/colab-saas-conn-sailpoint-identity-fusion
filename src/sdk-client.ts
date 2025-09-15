@@ -503,8 +503,15 @@ export class SDKClient {
                 value: identityId,
             },
         ]
-        const response = await api.updateAccount({ id, requestBody })
-        return response.data
+        try {
+            const response = await api.updateAccount({ id, requestBody })
+            return response.data
+        } catch (error: any) {
+            if (error.response?.status === 429) {
+                throw error
+            }
+            return {}
+        }
     }
 
     async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[]): Promise<FormDefinitionResponseBeta[]> {

@@ -516,7 +516,7 @@ export class ContextHelper {
         const uniqueAccounts: UniqueAccount[] = []
         logger.debug(lm('Updating accounts.', c))
 
-        const batchSize = 250
+        const batchSize = 500
         for (let i = 0; i < this.accounts.length; i += batchSize) {
             const batchStartTime = performance.now()
             const batch = this.accounts.slice(i, i + batchSize)
@@ -556,7 +556,6 @@ export class ContextHelper {
     }
 
     private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {       
-        logger.info(`Processing ${accounts.length} with concurrency`) 
         const results = await batch(
             accounts,
             (account) => this.refreshUniqueAccount(account),

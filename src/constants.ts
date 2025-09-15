@@ -30,7 +30,7 @@ export const reservedAttributes = [
 ]
 export const NONAGGREGABLE_TYPES = ['DelimitedFile']
 export const CONCURRENCY = {
-    UNCORRELATED_ACCOUNTS: 1000,
-    PROCESS_ACCOUNTS: 25,
-    CORRELATE_ACCOUNTS: 100
+    UNCORRELATED_ACCOUNTS: 500,
+    PROCESS_ACCOUNTS: 50,
+    CORRELATE_ACCOUNTS: 25
 }

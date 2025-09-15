@@ -1,3 +1,5 @@
+import { REQUESTSPERSECOND } from '../constants'
+
 export async function batch<T, R = any>(
     items: T[],
     processFunction: (item: T) => Promise<R>,
@@ -47,13 +49,15 @@ export async function batchRetry<T, R>(
 
         if (!ignoreResults) results.push(...batchProcessed);
 
-        // Opens the event loop to ensure keepAlive is sent.
-        await new Promise(resolve => setTimeout(resolve, 5))
-
         processed += batch.length;
         const batchEndTime = performance.now()
         const batchDuration = batchEndTime - batchStartTime
-        if (afterBatchMethod) afterBatchMethod(processed, total, batchDuration);
+
+        let delay = 5            
+        // Opens the event loop to ensure keepAlive is sent.
+        await new Promise(resolve => setTimeout(resolve, delay))
+
+        if (afterBatchMethod) afterBatchMethod(processed, total, batchDuration + delay);
 
         batch.length = 0
     }
