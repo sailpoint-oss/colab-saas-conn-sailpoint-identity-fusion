@@ -6,15 +6,79 @@ export async function batch<T, R = any>(
 ) {
     let processed: number = 0
     const total: number = items.length
+    const results: R[] = []
     for (let i = 0; i < items.length; i += batchSize) {
         const batch = items.slice(i, i + batchSize)
         const promises = batch.map(async (item) => processFunction(item))
-        await Promise.all(promises)
+        const batchProcessed = await Promise.all(promises)
+
+        results.push(...batchProcessed)
 
         // Opens the event loop to ensure keepAlive is sent.
         await new Promise(resolve => setTimeout(resolve, 5))
 
         processed += batch.length;
         if (afterBatchMethod) afterBatchMethod(processed, total)
+
+        batch.length = 0
     }
+
+    return results
+}
+
+export async function batchRetry<T, R>(
+    items: T[],
+    processFunction: (item: T) => Promise<R>,
+    batchSize: number = 250,
+    maxRetries: number = 20,
+    afterBatchMethod?: (processedCount: number, total: number, duration: number) => void,
+    retryMethod?: (attempt: number, maxRetries: number, wait: number) => void,
+    ignoreResults?: boolean
+) {
+    let processed: number = 0
+    const total: number = items.length
+    let results: R[] = []
+    for (let i = 0; i < items.length; i += batchSize) {
+        const batchStartTime = performance.now()
+        const batch = items.slice(i, i + batchSize)
+        const promises = batch.map(async (item) => processItemWithRetry(item, processFunction, maxRetries, retryMethod))
+        const batchProcessed = await Promise.all(promises)
+
+        if (!ignoreResults) results.push(...batchProcessed);
+
+        // Opens the event loop to ensure keepAlive is sent.
+        await new Promise(resolve => setTimeout(resolve, 5))
+
+        processed += batch.length;
+        const batchEndTime = performance.now()
+        const batchDuration = batchEndTime - batchStartTime
+        if (afterBatchMethod) afterBatchMethod(processed, total, batchDuration);
+
+        batch.length = 0
+    }
+
+    return results
+}
+
+async function processItemWithRetry<T, R>(
+    item: T,
+    processFunction: (item: T) => Promise<R>,
+    maxRetries: number,
+    retryMethod?: (attempt: number, maxRetries: number, wait: number) => void
+): Promise<R> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await processFunction(item);
+        } catch (error) {
+            if (attempt === maxRetries) throw error;
+            
+            // Wait before retry with exponential backoff
+            const delay = 1000 * Math.pow(2, attempt);
+
+            if (retryMethod) retryMethod(attempt, maxRetries, delay)
+
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    throw new Error('Should not reach here');
 }

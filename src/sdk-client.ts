@@ -1,9 +1,8 @@
-import axios, { AxiosInstance } from 'axios'
+import axios from 'axios'
 import axiosRetry from 'axios-retry'
 import {
     logger,
 } from '@sailpoint/connector-sdk'
-import axiosThrottle from 'axios-request-throttle'
 import {
     Configuration,
     CreateFormDefinitionRequestBeta,
@@ -52,6 +51,8 @@ import {
 import { URL } from 'url'
 import { RETRIES, TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
 import { retriesConfig, throttleConfig } from './axios'
+import { batchRetry } from './utils/batch'
+import { Agent } from 'https'
 
 const sleep = (ms: number) => {
     return new Promise((resolve) => setTimeout(resolve, ms))
@@ -180,93 +181,6 @@ async function asyncBatchPaginate<T, P = any>(
     }
 
     return allItems
-}
-
-async function asyncBatchProcess<T, R = any>(
-    items: T[],
-    processFunction: (item: T) => Promise<R>,
-    batchSize = 250,
-    maxParallelRequests = 8
-): Promise<R[]> {
-    // Collection to store all processed results
-    let allResults: R[] = []
-    
-    // Start processing from the beginning
-    let offset = 0
-    let hasMoreItems = true
-
-    // Continue processing batches in parallel until all items are done
-    while (hasMoreItems && offset < items.length) {
-        // Create an array of promises for parallel requests
-        const batchPromises = []
-
-        for (let i = 0; i < maxParallelRequests && offset + i * batchSize < items.length; i++) {
-            const currentOffset = offset + i * batchSize
-            const batchItems = items.slice(currentOffset, currentOffset + batchSize)
-            
-            if (batchItems.length === 0) break
-
-            // Function to handle retries with exponential backoff
-            const executeWithRetry = async (items: T[], retryCount = 0): Promise<R[]> => {
-                try {
-                    // Process all items in this batch concurrently
-                    const batchResults = await Promise.all(
-                        items.map(item => processFunction(item))
-                    )
-                    return batchResults
-                } catch (error: any) {
-                    // Check if it's a retryable error
-                    if (retryCount < RETRIES) {
-                        const waitTime = 1000 * Math.pow(2, retryCount) // Exponential backoff
-                        
-                        logger.info(`Retry ${retryCount + 1}/${RETRIES} for batch after waiting ${waitTime}ms`)
-                        
-                        // Wait and then retry
-                        await new Promise(resolve => setTimeout(resolve, waitTime))
-                        return executeWithRetry(items, retryCount + 1)
-                    }
-                    
-                    // If we've exhausted retries, rethrow
-                    logger.error(`Batch processing failed after ${retryCount} retries: ${error.message}`)
-                    throw error
-                }
-            }
-            
-            // Use our retry-enabled function
-            const batchPromise = executeWithRetry(batchItems)
-            batchPromises.push(batchPromise)
-        }
-
-        // Wait for all parallel requests to complete, handling any failures
-        const batchResults = await Promise.allSettled(batchPromises)
-        const batchResponses = batchResults
-            .filter(result => result.status === 'fulfilled')
-            .map(result => (result as PromiseFulfilledResult<R[]>).value)
-        
-        // Log failed requests
-        const failedCount = batchResults.filter(result => result.status === 'rejected').length
-        if (failedCount > 0) {
-            logger.warn(`${failedCount} batch requests failed after retries`)
-        }
-        
-        logger.info(`Processed ${batchResponses.length} batches with results total: ${allResults.length + batchResponses.reduce((sum, r) => sum + r.length, 0)}`)
-        
-        // Process all responses
-        for (const response of batchResponses) {
-            // Add the batch results to our collected results
-            allResults = [...allResults, ...response]
-        }
-
-        // Update offset for next parallel batch
-        offset += batchSize * maxParallelRequests
-
-        // Check if we've processed all items
-        if (offset >= items.length) {
-            hasMoreItems = false
-        }
-    }
-
-    return allResults
 }
 
 export class SDKClient {
@@ -564,15 +478,22 @@ export class SDKClient {
     }
 
     async batchCorrelateAccounts(correlationConfigs: {identity: string, account: string}[]) {
-        const correlations = await asyncBatchProcess(
+        const correlations = await batchRetry(
             correlationConfigs,
-            ({identity, account}: {identity: string, account: string}) => this.correlateAccount(identity, account)
+            ({identity, account}: {identity: string, account: string}) => this.correlateAccount(identity, account),
+            50,
+            20,
+            (processed: number, total: number, duration: number) => logger.info(`Processed ${processed} of ${total} account correlations. Total batch duration: ${duration.toFixed(0)}ms.`),
+            (attempt: number, maxRetries: number, wait: number) => logger.info(`Retry ${attempt}/${maxRetries} for batch request after waiting ${wait}ms`),
+            true
         )
         return correlations
     }
 
     async correlateAccount(identityId: string, id: string): Promise<object> {
-        const api = new AccountsApi(this.config)
+        const api = new AccountsApi(this.config, undefined, axios.create({
+            httpsAgent: new Agent({ keepAlive: true, maxSockets: 50 })
+        }))
         const requestBody: JsonPatchOperation[] = [
             {
                 op: 'replace',
@@ -589,9 +510,9 @@ export class SDKClient {
     }
 
     async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[]): Promise<FormDefinitionResponseBeta[]> {
-        const forms = await asyncBatchProcess(
+        const forms = await batchRetry(
             uniqueForms,
-            this.createForm
+            (form: CreateFormDefinitionRequestBeta) => this.createForm(form)
         )
         return forms
     }
