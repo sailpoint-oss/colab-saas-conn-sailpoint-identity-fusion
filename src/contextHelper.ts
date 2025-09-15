@@ -37,6 +37,7 @@ import {
     stringifyScore,
 } from './utils'
 import {
+    CONCURRENCY,
     EDITFORMNAME,
     NONAGGREGABLE_TYPES,
     TRANSFORM_NAME,
@@ -516,14 +517,12 @@ export class ContextHelper {
         logger.debug(lm('Updating accounts.', c))
 
         const batchSize = 250
-        const concurrency = 25
-
         for (let i = 0; i < this.accounts.length; i += batchSize) {
             const batchStartTime = performance.now()
             const batch = this.accounts.slice(i, i + batchSize)
 
             // Process accounts with controlled concurrency
-            const processedBatch = await this.processAccountsWithConcurrency(batch, concurrency)
+            const processedBatch = await this.processAccountsWithConcurrency(batch, CONCURRENCY.PROCESS_ACCOUNTS)
             uniqueAccounts.push(...processedBatch)
 
             // Send processed accounts immediately
@@ -547,7 +546,7 @@ export class ContextHelper {
 
         // Run correlations
         logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
-        await this.client.batchCorrelateAccounts(this.accountsToCorrelate);
+        await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS);
 
         // Reset counter for next batch
         this.correlationCounter = 0

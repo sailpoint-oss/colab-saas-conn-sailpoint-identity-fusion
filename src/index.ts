@@ -33,6 +33,7 @@ import { UniqueAccount } from './model/account'
 import { Config } from './model/config'
 import { UniqueForm } from './model/form'
 import { batch } from './utils/batch'
+import { CONCURRENCY } from './constants'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
@@ -219,7 +220,7 @@ export const connector = async () => {
                 } catch (e) {
                     ctx.handleError(e)
                 }
-            }, 1000, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`));
+            }, CONCURRENCY.UNCORRELATED_ACCOUNTS, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`));
             // Moved out to process Web Requests in parallel.
             await ctx.createUniqueForms(uniqueForms)
 
