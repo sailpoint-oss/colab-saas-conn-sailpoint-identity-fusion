@@ -205,9 +205,8 @@ export const connector = async () => {
             // console.timeLog('stdAccountList', 'baseline')
 
             //PROCESS UNCORRELATED ACCOUNTS
-            logger.info('Processing uncorrelated accounts.')
+            logger.info(`Processing ${pendingAccounts.length} uncorrelated accounts.`)
             const reviewerIDs = ctx.listAllReviewerIDs()
-            let processed = 0;
             // Batch the uncorrelated account processing
             const uniqueForms = new Map<string, UniqueForm>();
             await batch(pendingAccounts, async (uncorrelatedAccount) => {
@@ -220,7 +219,7 @@ export const connector = async () => {
                 } catch (e) {
                     ctx.handleError(e)
                 }
-            }, 1000, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`))
+            }, 1000, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`));
             // Moved out to process Web Requests in parallel.
             await ctx.createUniqueForms(uniqueForms)
 
