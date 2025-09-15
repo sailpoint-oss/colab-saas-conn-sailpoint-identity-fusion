@@ -551,6 +551,7 @@ export class ContextHelper {
         // Reset counter for next batch
         this.correlationCounter = 0
         this.accounts = []
+        this.accountsToCorrelate = []
 
         return uniqueAccounts
     }

@@ -330,9 +330,6 @@ export const connector = async () => {
             //BUILD RESULTING ACCOUNTS
             logger.info('Sending accounts.')
             await ctx.listAndSendUniqueAccounts(res);
-
-            
-            
         } finally {
             clearInterval(interval)
         }
