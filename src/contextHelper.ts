@@ -57,6 +57,7 @@ import { Action, ActionSource } from './model/action'
 import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
+import { batch } from './utils/batch'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -97,7 +98,7 @@ export class ContextHelper {
     // Counter to track number of account correlations performed
     private correlationCounter: number = 0
 
-    private accountsToCorrelate: Set<{identity: string, account: string}>
+    private accountsToCorrelate: {identity: string, account: string}[]
 
     constructor(config: Config) {
         this.config = config
@@ -121,7 +122,7 @@ export class ContextHelper {
         this.errors = []
         this.reviewerIDs = new Map<string, string[]>()
 
-        this.accountsToCorrelate = new Set<{identity: string, account: string}>()
+        this.accountsToCorrelate = []
 
         logger.debug(lm(`Initializing SDK client.`, this.c))
         this.client = new SDKClient(this.config)
@@ -514,7 +515,7 @@ export class ContextHelper {
         const uniqueAccounts: UniqueAccount[] = []
         logger.debug(lm('Updating accounts.', c))
 
-        const batchSize = 50
+        const batchSize = 250
         const concurrency = 25
 
         for (let i = 0; i < this.accounts.length; i += batchSize) {
@@ -544,17 +545,9 @@ export class ContextHelper {
             batch.length = 0
         }
 
-        // Log the total number of correlations performed during this batch processing
-        if (this.correlationCounter > 0) {
-            logger.info(
-                lm(
-                    `Performed ${this.correlationCounter} account correlations in total. These are expensive API operations that can impact performance.`,
-                    c
-                )
-            )
-        } else {
-            logger.info(lm(`No account correlations were needed during this batch processing.`, c))
-        }
+        // Run correlations
+        logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
+        await this.client.batchCorrelateAccounts(this.accountsToCorrelate);
 
         // Reset counter for next batch
         this.correlationCounter = 0
@@ -563,27 +556,14 @@ export class ContextHelper {
         return uniqueAccounts
     }
 
-    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {
-        const results: UniqueAccount[] = []
-        for (let i = 0; i < accounts.length; i += concurrency) {
-            const chunkStartTime = performance.now()
-            const chunk = accounts.slice(i, i + concurrency)
-            const processedChunk = await Promise.all(chunk.map((account) => this.refreshUniqueAccount(account)))
-            results.push(...processedChunk)
-            const chunkEndTime = performance.now()
-            logger.debug(
-                `Chunk ${i / concurrency + 1} processing time: ${(chunkEndTime - chunkStartTime).toFixed(0)}ms`
-            )
-
-            // Log interim correlation count if any correlations happened in this chunk
-            if (this.correlationCounter > 0) {
-                logger.debug(`Performed ${this.correlationCounter} correlations so far`)
-            }
-        }
-
-        // Run correlations
-        logger.info(`Starting to correlate ${this.accountsToCorrelate.size} accounts`)
-        await this.client.batchCorrelateAccounts(Array.from(this.accountsToCorrelate.values()))
+    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {       
+        logger.info(`Processing ${accounts.length} with concurrency`) 
+        const results = await batch(
+            accounts,
+            (account) => this.refreshUniqueAccount(account),
+            concurrency,
+            (processed: number, total: number) => logger.debug(`Processed ${processed} of ${total} accounts`)
+        );
         
         return results
     }
@@ -707,7 +687,7 @@ export class ContextHelper {
                         const sourceAccount = await this.getSourceAccount(acc)
                         if (sourceAccount && sourceAccount.uncorrelated) {
                             // This is the slow operation - correlating an uncorrelated account with an identity
-                            this.accountsToCorrelate.add({identity: account.identityId!, account: acc})
+                            this.accountsToCorrelate.push({identity: account.identityId!, account: acc})
                             sourceAccounts.push(sourceAccount)
                             accountIds.push(acc)
                         }
