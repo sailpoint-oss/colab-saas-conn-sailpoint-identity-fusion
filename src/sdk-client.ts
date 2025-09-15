@@ -478,9 +478,11 @@ export class SDKClient {
     }
 
     async batchCorrelateAccounts(correlationConfigs: {identity: string, account: string}[], concurrency: number = 10) {
+        const agent = new Agent({ keepAlive: true, maxSockets: concurrency })
+
         const correlations = await batchRetry(
             correlationConfigs,
-            ({identity, account}: {identity: string, account: string}) => this.correlateAccount(identity, account, new Agent({ keepAlive: true, maxSockets: concurrency })),
+            ({identity, account}: {identity: string, account: string}) => this.correlateAccount(identity, account, agent),
             concurrency,
             20,
             (processed: number, total: number, duration: number) => logger.info(`Processed ${processed} of ${total} account correlations. Total batch duration: ${duration.toFixed(0)}ms.`),
