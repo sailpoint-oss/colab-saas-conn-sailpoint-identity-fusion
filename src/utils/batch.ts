@@ -38,6 +38,7 @@ export async function batchRetry<T, R>(
     let processed: number = 0
     const total: number = items.length
     let results: R[] = []
+    
     for (let i = 0; i < items.length; i += batchSize) {
         const batchStartTime = performance.now()
         const batch = items.slice(i, i + batchSize)
@@ -69,11 +70,15 @@ async function processItemWithRetry<T, R>(
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             return await processFunction(item);
-        } catch (error) {
+        } catch (error: any) {
             if (attempt === maxRetries) throw error;
             
             // Wait before retry with exponential backoff
-            const delay = 1000 * Math.pow(2, attempt);
+            let delay = 1000 * Math.pow(2, attempt);
+
+            if (error.response?.status === 429 && error.response.headers['retry-after']) {
+                delay = parseInt(error.response.headers['retry-after']) * 1000
+            }
 
             if (retryMethod) retryMethod(attempt, maxRetries, delay)
 
