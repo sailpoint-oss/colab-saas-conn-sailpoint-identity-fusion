@@ -126,7 +126,8 @@
                         {
                             "key": "uid_template",
                             "label": "Apache Velocity template",
-                            "type": "text",
+                            "helpKey": "You can use $Math and $Date built-in Javascript modules and $datefns external module",
+                            "type": "textarea",
                             "required": true
                         },
                         {

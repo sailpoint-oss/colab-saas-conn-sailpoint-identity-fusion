@@ -37,6 +37,7 @@ import {
     stringifyScore,
 } from './utils'
 import {
+    CONCURRENCY,
     EDITFORMNAME,
     NONAGGREGABLE_TYPES,
     TRANSFORM_NAME,
@@ -57,6 +58,7 @@ import { Action, ActionSource } from './model/action'
 import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
+import { batch } from './utils/batch'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -75,6 +77,12 @@ export class ContextHelper {
     private authoritativeAccounts: Account[]
     // Map of account ID to source accounts for faster lookup
     private accountSourceMap: Map<string, Account[]>
+    // Map of account ID to authoritative accounts for O(1) lookup
+    private authoritativeAccountsById: Map<string, Account[]>
+    // Map of identity ID to accounts for O(1) lookup instead of find operations
+    private accountsByIdentityId: Map<string, Account>
+    // Map for config merging_map lookups by identity attribute
+    private mergingMapByIdentity: Map<string, any>
     private uniqueForms: FormDefinitionResponseBeta[]
     private uniqueFormInstances: FormInstanceResponseBeta[]
     private editForms: FormDefinitionResponseBeta[]
@@ -91,6 +99,8 @@ export class ContextHelper {
     // Counter to track number of account correlations performed
     private correlationCounter: number = 0
 
+    private accountsToCorrelate: {identity: string, account: string}[]
+
     constructor(config: Config) {
         this.config = config
         this.sources = []
@@ -102,6 +112,9 @@ export class ContextHelper {
         this.accounts = []
         this.authoritativeAccounts = []
         this.accountSourceMap = new Map<string, Account[]>()
+        this.authoritativeAccountsById = new Map<string, Account[]>()
+        this.accountsByIdentityId = new Map<string, Account>()
+        this.mergingMapByIdentity = new Map<string, any>()
         this.uniqueForms = []
         this.uniqueFormInstances = []
         this.editForms = []
@@ -110,16 +123,25 @@ export class ContextHelper {
         this.errors = []
         this.reviewerIDs = new Map<string, string[]>()
 
+        this.accountsToCorrelate = []
+
         logger.debug(lm(`Initializing SDK client.`, this.c))
         this.client = new SDKClient(this.config)
 
         this.config!.merging_map ??= []
+        // Build merging map lookup for faster access
+        this.buildMergingMapLookup()
+
+        // Create getScore function with closure to capture the mergingMapByIdentity
+        const mergingMapRef = this.mergingMapByIdentity
+        const configRef = this.config
+        
         this.config.getScore = (attribute?: string): number => {
             let score
-            if (this.config.global_merging_score) {
-                score = this.config.merging_score
+            if (configRef.global_merging_score) {
+                score = configRef.merging_score
             } else {
-                const attributeConfig = this.config.merging_map.find((x) => x.identity === attribute)
+                const attributeConfig = mergingMapRef.get(attribute!)
                 score = attributeConfig?.merging_score
             }
 
@@ -172,6 +194,9 @@ export class ContextHelper {
         }
 
         const owner = getOwnerFromSource(this.source)
+        if (!owner) {
+            throw new ConnectorError('Source owner is required')
+        }
         const wfName = `${WORKFLOW_NAME} (${this.config!.cloudDisplayName})`
         this.emailer = await this.getEmailWorkflow(wfName, owner)
 
@@ -189,6 +214,9 @@ export class ContextHelper {
         this.accounts = []
         this.authoritativeAccounts = []
         this.accountSourceMap = new Map<string, Account[]>()
+        this.authoritativeAccountsById = new Map<string, Account[]>()
+        this.accountsByIdentityId = new Map<string, Account>()
+        this.mergingMapByIdentity = new Map<string, any>()
         // this.currentIdentities = []
         this.uniqueForms = []
         this.uniqueFormInstances = []
@@ -361,11 +389,13 @@ export class ContextHelper {
     }
 
     getFusionAccountByIdentity(identity: IdentityDocument): Account | undefined {
-        return this.accounts.find((x) => x.identityId === identity.id)
+        // Use O(1) Map lookup instead of O(n) find operation
+        return this.accountsByIdentityId.get(identity.id)
     }
 
     getIdentityAccount(identity: IdentityDocument): Account | undefined {
-        return this.accounts.find((x) => x.identityId === identity.id)
+        // Use O(1) Map lookup instead of O(n) find operation
+        return this.accountsByIdentityId.get(identity.id)
     }
 
     listCurrentIdentityIDs(): string[] {
@@ -383,9 +413,35 @@ export class ContextHelper {
 
         this.authoritativeAccounts = await this.client.listAccounts(this.sources.map((x) => x.id!))
 
+        // Build the authoritative accounts lookup map for O(1) access
+        logger.debug(lm('Building authoritative accounts lookup map for faster access.', c))
+        this.buildAuthoritativeAccountsLookup()
+
         // Build the account source map for faster lookups
         logger.debug(lm('Building account source map for faster lookups.', c))
         this.buildAccountSourceMap()
+
+        // Build accounts by identity ID map for faster lookups
+        logger.debug(lm('Building accounts by identity ID map for faster lookups.', c))
+        this.buildAccountsByIdentityIdLookup()
+    }
+
+    private buildAuthoritativeAccountsLookup(): void {
+        // Clear existing map
+        this.authoritativeAccountsById.clear()
+
+        // Group authoritative accounts by ID for O(1) lookup
+        for (const account of this.authoritativeAccounts) {
+            if (!account.id) continue
+
+            const existingAccounts = this.authoritativeAccountsById.get(account.id) || []
+            existingAccounts.push(account)
+            this.authoritativeAccountsById.set(account.id, existingAccounts)
+        }
+
+        logger.debug(
+            lm(`Built authoritative accounts lookup map with ${this.authoritativeAccountsById.size} entries.`, 'buildAuthoritativeAccountsLookup')
+        )
     }
 
     private buildAccountSourceMap(): void {
@@ -397,19 +453,51 @@ export class ContextHelper {
             if (!account.attributes?.accounts) continue
 
             for (const accountId of account.attributes.accounts) {
-                // Get all accounts matching this accountId for each source
-                const sourceAccounts = this.authoritativeAccounts.filter(
-                    (x) => this.config.sources.includes(x.sourceName) && x.id === accountId
-                )
-
-                if (sourceAccounts.length > 0) {
-                    this.accountSourceMap.set(accountId, sourceAccounts)
+                // Use O(1) lookup instead of O(n) filter operation
+                const candidateAccounts = this.authoritativeAccountsById.get(accountId)
+                if (candidateAccounts) {
+                    // Filter only by source name since ID already matches
+                    const sourceAccounts = candidateAccounts.filter((x) => this.config.sources.includes(x.sourceName))
+                    
+                    if (sourceAccounts.length > 0) {
+                        this.accountSourceMap.set(accountId, sourceAccounts)
+                    }
                 }
             }
         }
 
         logger.debug(
             lm(`Built account source map with ${this.accountSourceMap.size} entries.`, 'buildAccountSourceMap')
+        )
+    }
+
+    private buildMergingMapLookup(): void {
+        // Clear existing map
+        this.mergingMapByIdentity.clear()
+
+        // Build lookup map for merging_map by identity attribute
+        for (const mergingConfig of this.config.merging_map) {
+            this.mergingMapByIdentity.set(mergingConfig.identity, mergingConfig)
+        }
+
+        logger.debug(
+            lm(`Built merging map lookup with ${this.mergingMapByIdentity.size} entries.`, 'buildMergingMapLookup')
+        )
+    }
+
+    private buildAccountsByIdentityIdLookup(): void {
+        // Clear existing map
+        this.accountsByIdentityId.clear()
+
+        // Build lookup map for accounts by identity ID
+        for (const account of this.accounts) {
+            if (account.identityId) {
+                this.accountsByIdentityId.set(account.identityId, account)
+            }
+        }
+
+        logger.debug(
+            lm(`Built accounts by identity ID lookup with ${this.accountsByIdentityId.size} entries.`, 'buildAccountsByIdentityIdLookup')
         )
     }
 
@@ -428,15 +516,13 @@ export class ContextHelper {
         const uniqueAccounts: UniqueAccount[] = []
         logger.debug(lm('Updating accounts.', c))
 
-        const batchSize = 50
-        const concurrency = 25
-
+        const batchSize = 500
         for (let i = 0; i < this.accounts.length; i += batchSize) {
             const batchStartTime = performance.now()
             const batch = this.accounts.slice(i, i + batchSize)
 
             // Process accounts with controlled concurrency
-            const processedBatch = await this.processAccountsWithConcurrency(batch, concurrency)
+            const processedBatch = await this.processAccountsWithConcurrency(batch, CONCURRENCY.PROCESS_ACCOUNTS)
             uniqueAccounts.push(...processedBatch)
 
             // Send processed accounts immediately
@@ -458,43 +544,26 @@ export class ContextHelper {
             batch.length = 0
         }
 
-        // Log the total number of correlations performed during this batch processing
-        if (this.correlationCounter > 0) {
-            logger.info(
-                lm(
-                    `Performed ${this.correlationCounter} account correlations in total. These are expensive API operations that can impact performance.`,
-                    c
-                )
-            )
-        } else {
-            logger.info(lm(`No account correlations were needed during this batch processing.`, c))
-        }
+        // Run correlations
+        logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
+        await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS);
 
         // Reset counter for next batch
-        const totalCorrelations = this.correlationCounter
         this.correlationCounter = 0
         this.accounts = []
+        this.accountsToCorrelate = []
 
         return uniqueAccounts
     }
 
-    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {
-        const results: UniqueAccount[] = []
-        for (let i = 0; i < accounts.length; i += concurrency) {
-            const chunkStartTime = performance.now()
-            const chunk = accounts.slice(i, i + concurrency)
-            const processedChunk = await Promise.all(chunk.map((account) => this.refreshUniqueAccount(account)))
-            results.push(...processedChunk)
-            const chunkEndTime = performance.now()
-            logger.debug(
-                `Chunk ${i / concurrency + 1} processing time: ${(chunkEndTime - chunkStartTime).toFixed(0)}ms`
-            )
-
-            // Log interim correlation count if any correlations happened in this chunk
-            if (this.correlationCounter > 0) {
-                logger.debug(`Performed ${this.correlationCounter} correlations so far`)
-            }
-        }
+    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {       
+        const results = await batch(
+            accounts,
+            (account) => this.refreshUniqueAccount(account),
+            concurrency,
+            (processed: number, total: number) => logger.debug(`Processed ${processed} of ${total} accounts`)
+        );
+        
         return results
     }
 
@@ -548,7 +617,7 @@ export class ContextHelper {
                 }
             } else {
                 const accounts = await this.client.getAccountsByIdentity(account.identityId!)
-                sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.sourceName))
+                sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.sourceName!))
             }
         }
 
@@ -564,7 +633,7 @@ export class ContextHelper {
     private async getSourceAccount(id: string): Promise<Account | undefined> {
         if (this.initiated === 'lazy') {
             const account = await this.client.getAccount(id)
-            if (account && this.config.sources.includes(account.sourceName)) {
+            if (account && account.sourceName && this.config.sources.includes(account.sourceName)) {
                 return account
             }
         } else {
@@ -617,14 +686,14 @@ export class ContextHelper {
                         const sourceAccount = await this.getSourceAccount(acc)
                         if (sourceAccount && sourceAccount.uncorrelated) {
                             // This is the slow operation - correlating an uncorrelated account with an identity
-                            logger.debug(lm(`Correlating ${acc} account with ${account.identity?.name}.`, c, 1))
-                            const response = await this.correlateAccount(account.identityId! as string, acc)
+                            this.accountsToCorrelate.push({identity: account.identityId!, account: acc})
                             sourceAccounts.push(sourceAccount)
                             accountIds.push(acc)
                         }
                     }
-                } catch (e) {
+                } catch (error) {
                     logger.error(lm(`Failed to correlate ${acc} account with ${account.identity?.name}.`, c, 1))
+                    logger.error(error)
                 }
             }
             account.attributes!.accounts = accountIds
@@ -674,7 +743,7 @@ export class ContextHelper {
 
             attributes: for (const attrDef of schema.attributes) {
                 if (!reservedAttributes.includes(attrDef.name)) {
-                    const attrConf = this.config.merging_map.find((x) => x.identity === attrDef.name)
+                    const attrConf = this.mergingMapByIdentity.get(attrDef.name)
                     const attributeMerge = attrConf?.attributeMerge || this.config.attributeMerge
                     let multiValue: string[] = []
                     let firstSource = true
@@ -950,6 +1019,15 @@ export class ContextHelper {
         return this.editForms
     }
 
+    async createUniqueForms(forms: Map<string, UniqueForm>) {
+        const uniqueFormNames = this.uniqueForms.map((x) => x.name)
+        const nonExistentForms = Array.from(forms.values()).filter((x) => !uniqueFormNames.includes(x.name))
+        const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
+        
+        const formsCreated = await this.client.batchCreateForms(nonExistentForms);
+        return [...formsCreated, ...existingForms]
+    }
+
     async createUniqueForm(form: UniqueForm): Promise<FormDefinitionResponseBeta> {
         const c = 'createUniqueForm'
         const existingForm = this.uniqueForms.find((x) => x.name === form.name)
@@ -966,6 +1044,9 @@ export class ContextHelper {
     async createEditForm(account: UniqueAccount): Promise<FormDefinitionResponseBeta> {
         const name = this.getEditFormName(account.attributes.uniqueID as string)
         const owner = this.source!.owner
+        if (!owner) {
+            throw new ConnectorError('Source owner is required')
+        }
         const attributes = Object.keys(account.attributes).filter((x) => !reservedAttributes.includes(x))
         const form = new EditForm(name, owner, account, attributes)
         const response = await this.client.createForm(form)
@@ -1038,7 +1119,10 @@ export class ContextHelper {
             attributes: for (const attribute of Object.keys(accountAttributes)) {
                 const iValue = accountAttributes[attribute] as string
                 const cValue = candidate.attributes![attribute] as string
-                if (iValue && cValue) {
+                
+                // Only evaluate when both attributes contain a value.
+                // Skip if only one is NULL
+                if (iValue && cValue && iValue.trim() != "" && cValue.trim() != "") {
                     const similarity = lig3(iValue, cValue)
                     const score = similarity * 100
                     if (!this.config.global_merging_score) {
@@ -1047,7 +1131,10 @@ export class ContextHelper {
                             continue candidates
                         }
                     }
+
                     scores.set(attribute, score)
+                } else if (iValue != cValue) {
+                    continue candidates
                 }
             }
 
@@ -1126,7 +1213,8 @@ export class ContextHelper {
                 const currentAccount = this.getFusionAccountByIdentity(identicalMatch)
                 if (currentAccount) {
                     uniqueAccount = currentAccount
-                    uniqueAccount = this.accounts.find((x) => x.identityId === identicalMatch.id) as Account
+                    // Keep the original logic but use optimized Map lookup instead of find
+                    uniqueAccount = this.accountsByIdentityId.get(identicalMatch.id) as Account
                     uniqueAccount.modified = new Date(0).toISOString()
                     message = datedMessage('Identical match found.', uncorrelatedAccount)
                     status = 'auto'
@@ -1149,6 +1237,9 @@ export class ContextHelper {
                 if (similarMatches.length > 0) {
                     logger.debug(lm(`Similar matches found`, c, 1))
                     const formName = this.getUniqueFormName(uncorrelatedAccount, this.source!.name)
+                    if (!this.source!.owner) {
+                        throw new ConnectorError('Source owner is required')
+                    }
                     const formOwner = { id: this.source!.owner.id, type: this.source!.owner.type }
                     const accountAttributes = buildAccountAttributesObject(
                         uncorrelatedAccount,
@@ -1313,7 +1404,6 @@ export class ContextHelper {
     async processUniqueFormInstance(
         formInstance: FormInstanceResponseBeta
     ): Promise<{ decision: string; account: string; message: string }> {
-        const c = 'processUniqueFormInstance'
         let message = ''
         const decision = formInstance.formData!['identities'].toString()
         const account = (formInstance.formInput!['account'] as any).value
@@ -1603,9 +1693,16 @@ export class ContextHelper {
         if (this.errors.length > 0) {
             const message = composeErrorMessage(context, input, this.errors)
 
-            const ownerID = this.getSource().owner.id as string
+            const source = this.getSource()
+            if (!source.owner) {
+                throw new ConnectorError('Source owner is required')
+            }
+            const ownerID = source.owner.id as string
             const recipient = await this.client.getIdentityBySearch(ownerID)
-            const email = new ErrorEmail(this.getSource(), recipient!.email!, message)
+            if (!recipient || !recipient.email) {
+                throw new ConnectorError('Recipient email is required')
+            }
+            const email = new ErrorEmail(source, recipient.email, message)
 
             await this.sendEmail(email)
         }

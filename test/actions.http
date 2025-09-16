@@ -36,13 +36,6 @@ Content-Type: application/json
   "input": {},
   "config": {{config}}
 }
-
-HTTP/1.1 200  - OK
-x-powered-by: Express
-content-type: application/x-ndjson
-date: Tue, 18 Feb 2025 16:01:07 GMT
-connection: close
-transfer-encoding: chunked
 ###
 # Account read
 POST {{url}}
