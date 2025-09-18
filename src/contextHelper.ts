@@ -35,6 +35,7 @@ import {
     deleteArrayItem,
     stringifyIdentity,
     stringifyScore,
+    trimToNull
 } from './utils'
 import {
     CONCURRENCY,
@@ -1133,7 +1134,7 @@ export class ContextHelper {
                     }
 
                     scores.set(attribute, score)
-                } else if (iValue != cValue) {
+                } else if (trimToNull(iValue) != trimToNull(cValue)) {
                     continue candidates
                 }
             }
