@@ -1021,9 +1021,13 @@ export class ContextHelper {
     }
 
     async createUniqueForms(forms: Map<string, UniqueForm>) {
+        const c = 'createUniqueForms'
+
         const uniqueFormNames = this.uniqueForms.map((x) => x.name)
         const nonExistentForms = Array.from(forms.values()).filter((x) => !uniqueFormNames.includes(x.name))
         const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
+
+        logger.info(lm(`Creating ${nonExistentForms.length} new forms in batches`))
         
         const formsCreated = await this.client.batchCreateForms(nonExistentForms);
         return [...formsCreated, ...existingForms]
@@ -1231,7 +1235,7 @@ export class ContextHelper {
                         1
                     )
                     logger.info(msg)
-                    await this.correlateAccount(identicalMatch.id, uncorrelatedAccount.id!)
+                    this.accountsToCorrelate.push({identity: identicalMatch.id, account: uncorrelatedAccount.id!})
                 }
                 // Check if similar match exists
             } else {
