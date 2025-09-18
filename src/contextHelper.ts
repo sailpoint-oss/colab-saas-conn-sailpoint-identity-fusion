@@ -364,6 +364,14 @@ export class ContextHelper {
                 this.accounts.push(account)
             }
         }
+
+        // Build the account source map for faster lookups
+        logger.debug(lm('Building account source map for faster lookups.', c))
+        this.buildAccountSourceMap()
+
+        // Build accounts by identity ID map for faster lookups
+        logger.debug(lm('Building accounts by identity ID map for faster lookups.', c))
+        this.buildAccountsByIdentityIdLookup()
     }
 
     listProcessedAccountIDs(): string[] {
@@ -416,14 +424,6 @@ export class ContextHelper {
         // Build the authoritative accounts lookup map for O(1) access
         logger.debug(lm('Building authoritative accounts lookup map for faster access.', c))
         this.buildAuthoritativeAccountsLookup()
-
-        // Build the account source map for faster lookups
-        logger.debug(lm('Building account source map for faster lookups.', c))
-        this.buildAccountSourceMap()
-
-        // Build accounts by identity ID map for faster lookups
-        logger.debug(lm('Building accounts by identity ID map for faster lookups.', c))
-        this.buildAccountsByIdentityIdLookup()
     }
 
     private buildAuthoritativeAccountsLookup(): void {
