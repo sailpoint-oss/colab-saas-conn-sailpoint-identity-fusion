@@ -487,7 +487,7 @@ export const connector = async () => {
                                         break
 
                                     case 'report':
-                                        ctx.buildReport(input.identity)
+                                        await ctx.buildReport(input.identity)
                                         break
 
                                     default:
