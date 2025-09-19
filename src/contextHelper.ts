@@ -35,6 +35,7 @@ import {
     deleteArrayItem,
     stringifyIdentity,
     stringifyScore,
+    trimToNull
 } from './utils'
 import {
     CONCURRENCY,
@@ -840,7 +841,13 @@ export class ContextHelper {
         const identity = (await this.getIdentityById(fusionAccount.identityId!)) as IdentityDocument
         const authoritativeAccounts = await this.listAuthoritativeAccounts()
         const pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
-        const analysis = await Promise.all(pendingAccounts.map((x) => this.analyzeUncorrelatedAccount(x)))
+
+        const analysis = await batch(
+            pendingAccounts, 
+            (uncorrelatedAccount) => this.analyzeUncorrelatedAccount(uncorrelatedAccount),
+            CONCURRENCY.UNCORRELATED_ACCOUNTS, 
+            (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`)
+        );
 
         const email = new ReportEmail(analysis, this.config.merging_attributes, identity)
         logger.info(lm(`Sending report to ${identity.displayName}`, c, 1))
@@ -1020,9 +1027,13 @@ export class ContextHelper {
     }
 
     async createUniqueForms(forms: Map<string, UniqueForm>) {
+        const c = 'createUniqueForms'
+
         const uniqueFormNames = this.uniqueForms.map((x) => x.name)
         const nonExistentForms = Array.from(forms.values()).filter((x) => !uniqueFormNames.includes(x.name))
         const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
+
+        logger.info(lm(`Creating ${nonExistentForms.length} new forms in batches`))
         
         const formsCreated = await this.client.batchCreateForms(nonExistentForms);
         return [...formsCreated, ...existingForms]
@@ -1133,7 +1144,7 @@ export class ContextHelper {
                     }
 
                     scores.set(attribute, score)
-                } else if (iValue != cValue) {
+                } else if (trimToNull(iValue) != trimToNull(cValue)) {
                     continue candidates
                 }
             }
@@ -1230,7 +1241,7 @@ export class ContextHelper {
                         1
                     )
                     logger.info(msg)
-                    await this.correlateAccount(identicalMatch.id, uncorrelatedAccount.id!)
+                    this.accountsToCorrelate.push({identity: identicalMatch.id, account: uncorrelatedAccount.id!})
                 }
                 // Check if similar match exists
             } else {

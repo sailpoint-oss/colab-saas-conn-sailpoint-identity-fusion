@@ -514,16 +514,24 @@ export class SDKClient {
         }
     }
 
-    async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[]): Promise<FormDefinitionResponseBeta[]> {
+    async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[], concurrency: number = 10): Promise<FormDefinitionResponseBeta[]> {
+        const agent = new Agent({ keepAlive: true, maxSockets: concurrency })
+
         const forms = await batchRetry(
             uniqueForms,
-            (form: CreateFormDefinitionRequestBeta) => this.createForm(form)
+            (form: CreateFormDefinitionRequestBeta) => this.createForm(form, agent),
+            concurrency,
+            undefined,
+            (processed: number, total: number, duration: number) => logger.info(`Processed ${processed} of ${total} form creations. Total batch duration: ${duration.toFixed(0)}ms.`),
+            (attempt: number, maxRetries: number, wait: number) => logger.info(`Retry ${attempt}/${maxRetries} for batch request after waiting ${wait}ms`),
         )
         return forms
     }
 
-    async createForm(form: CreateFormDefinitionRequestBeta): Promise<FormDefinitionResponseBeta> {
-        const api = new CustomFormsBetaApi(this.config)
+    async createForm(form: CreateFormDefinitionRequestBeta, agent?: Agent): Promise<FormDefinitionResponseBeta> {
+        const api = new CustomFormsBetaApi(this.config, undefined, axios.create({
+            httpsAgent: agent
+        }))
 
         const response = await api.createFormDefinition({
             createFormDefinitionRequestBeta: form,
