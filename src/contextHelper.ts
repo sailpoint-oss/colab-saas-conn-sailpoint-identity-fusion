@@ -841,7 +841,13 @@ export class ContextHelper {
         const identity = (await this.getIdentityById(fusionAccount.identityId!)) as IdentityDocument
         const authoritativeAccounts = await this.listAuthoritativeAccounts()
         const pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
-        const analysis = await Promise.all(pendingAccounts.map((x) => this.analyzeUncorrelatedAccount(x)))
+
+        const analysis = await batch(
+            pendingAccounts, 
+            (uncorrelatedAccount) => this.analyzeUncorrelatedAccount(uncorrelatedAccount),
+            CONCURRENCY.UNCORRELATED_ACCOUNTS, 
+            (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`)
+        );
 
         const email = new ReportEmail(analysis, this.config.merging_attributes, identity)
         logger.info(lm(`Sending report to ${identity.displayName}`, c, 1))
