@@ -839,9 +839,10 @@ export class ContextHelper {
         const c = 'buildReport'
         const fusionAccount = (await this.getFusionAccount(id)) as Account
         const identity = (await this.getIdentityById(fusionAccount.identityId!)) as IdentityDocument
-        const authoritativeAccounts = await this.listAuthoritativeAccounts()
+        const authoritativeAccounts = this.listAuthoritativeAccounts()
         const pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
 
+        logger.info(lm(`Running analysis on ${pendingAccounts} pending accounts`, c, 1))
         const analysis = await batch(
             pendingAccounts, 
             (uncorrelatedAccount) => this.analyzeUncorrelatedAccount(uncorrelatedAccount),
