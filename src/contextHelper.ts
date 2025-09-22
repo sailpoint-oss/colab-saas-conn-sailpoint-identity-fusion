@@ -1129,12 +1129,12 @@ export class ContextHelper {
             // const scores: number[] = []
             const scores = new Map<string, number>()
             attributes: for (const attribute of Object.keys(accountAttributes)) {
-                const iValue = accountAttributes[attribute] as string
-                const cValue = candidate.attributes![attribute] as string
+                const iValue = ((accountAttributes[attribute] as string) || "").trim()
+                const cValue = ((candidate.attributes![attribute] as string) || "").trim()
                 
                 // Only evaluate when both attributes contain a value.
                 // Skip if only one is NULL
-                if (iValue && cValue && iValue.trim() != "" && cValue.trim() != "") {
+                if (iValue && cValue) {
                     const similarity = lig3(iValue, cValue)
                     const score = similarity * 100
                     if (!this.config.global_merging_score) {
@@ -1145,8 +1145,6 @@ export class ContextHelper {
                     }
 
                     scores.set(attribute, score)
-                } else if (trimToNull(iValue) != trimToNull(cValue)) {
-                    continue candidates
                 }
             }
 
