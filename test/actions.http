@@ -9,6 +9,13 @@ Content-Type: application/json
   "input": {},
   "config": {{config}}
 }
+
+HTTP/1.1 500  - Internal Server Error
+x-powered-by: Express
+content-type: application/x-ndjson
+date: Mon, 29 Sep 2025 09:35:33 GMT
+connection: close
+transfer-encoding: chunked
 ###
 # Discover schema
 POST {{url}}
@@ -43,16 +50,14 @@ Content-Type: application/json
 
 {
   "type": "std:account:read",
-  "input": {
-    "identity": "6a3bf623-558a-40b7-8453-4d67a3611239"
-  },
+  "input": {"identity":"2509","key":{"simple":{"id":"2509"}}},
   "config": {{config}}
 }
 
 HTTP/1.1 200  - OK
 x-powered-by: Express
 content-type: application/x-ndjson
-date: Mon, 17 Feb 2025 16:36:57 GMT
+date: Mon, 29 Sep 2025 09:41:30 GMT
 connection: close
 transfer-encoding: chunked
 ###

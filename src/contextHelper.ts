@@ -123,24 +123,6 @@ export class ContextHelper {
         this.client = new SDKClient(this.config)
 
         this.config!.merging_map ??= []
-        // Build merging map lookup for faster access
-        this.buildMergingMapLookup()
-
-        // Create getScore function with closure to capture the mergingMapByIdentity
-        const mergingMapRef = this.mergingMapByIdentity
-        const configRef = this.config
-        
-        this.config.getScore = (attribute?: string): number => {
-            let score
-            if (configRef.global_merging_score) {
-                score = configRef.merging_score
-            } else {
-                const attributeConfig = mergingMapRef.get(attribute!)
-                score = attributeConfig?.merging_score
-            }
-
-            return score ? score : 0
-        }
 
         this.baseUrl = new URL(this.config.baseurl.replace('.api.', '.')).origin
     }
@@ -219,6 +201,25 @@ export class ContextHelper {
         this.errors = []
         this.correlationCounter = 0
         this.initiated = 'lazy'
+
+        // Build merging map lookup for faster access
+        this.buildMergingMapLookup()
+
+        // Create getScore function with closure to capture the mergingMapByIdentity
+        const mergingMapRef = this.mergingMapByIdentity
+        const configRef = this.config
+        
+        this.config.getScore = (attribute?: string): number => {
+            let score
+            if (configRef.global_merging_score) {
+                score = configRef.merging_score
+            } else {
+                const attributeConfig = mergingMapRef.get(attribute!)
+                score = attributeConfig?.merging_score
+            }
+
+            return score ? score : 0
+        }
 
         if (!lazy) {
             this.mergingEnabled = this.config.merging_isEnabled
