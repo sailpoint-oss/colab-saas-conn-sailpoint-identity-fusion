@@ -41,24 +41,35 @@ You can use these features independently or together. This document provides an 
 - [Correlation](#correlation)
 
 **Get started**
-1. [Add fusion connector to ISC](#add-fusion-connector-to-isc)
-2. [Prerequisities](#prerequisites)
-3. [Create fusion connector in ISC](#create-fusion-connector-in-isc)
-4. [Configure connection details](#configure-connection-details)
-5. [Review and test connection](#review-and-test-connection)
-6. [Configure primary source](#configure-primary-source)
-    - [Base Configuration](#base-configuration)
-    - [Unique ID Configuration](#unique-id-configuration)
-    - [Merging/Mapping Configuration](#mergingmapping-configuration)
-7. [Discover schema](#discover-schema)
-8. [Create identity profile](#create-identity-profile)
-    - [Create provisioning plan](#create-provisioning-plan)
-9. [Aggregate entitlements](#aggregate-entitlements)
-10. [Aggregate accounts](#aggregate-accounts)
-11. [Add secondary sources](#add-secondary-sources)
-12. [Create access profiles for deduplication](#create-access-profiles-for-deduplication)
-13. [Generate deduplication report](#generate-deduplication-report)
-14. [Resolve potential duplicates](#resolve-potential-duplicates)
+- [Identity Fusion SaaS Connector](#identity-fusion-saas-connector)
+  - [Unique ID creation](#unique-id-creation)
+  - [Deduplication](#deduplication)
+  - [Mapping and merging accounts](#mapping-and-merging-accounts)
+  - [Connector modes](#connector-modes)
+  - [Account aggregation](#account-aggregation)
+  - [Correlation](#correlation)
+  - [Get started](#get-started)
+    - [Add fusion connector to ISC](#add-fusion-connector-to-isc)
+    - [Prerequisites](#prerequisites)
+    - [Create fusion connector in ISC](#create-fusion-connector-in-isc)
+    - [Configure connection details](#configure-connection-details)
+    - [Review and test connection](#review-and-test-connection)
+    - [Configure primary source](#configure-primary-source)
+      - [Base Configuration](#base-configuration)
+      - [Unique ID Configuration](#unique-id-configuration)
+      - [Merging/Mapping Configuration](#mergingmapping-configuration)
+    - [Discover schema](#discover-schema)
+    - [Create identity profile](#create-identity-profile)
+      - [Create provisioning plan](#create-provisioning-plan)
+    - [Aggregate entitlements](#aggregate-entitlements)
+    - [Aggregate accounts](#aggregate-accounts)
+    - [Add secondary sources](#add-secondary-sources)
+    - [Create access profiles for deduplication](#create-access-profiles-for-deduplication)
+    - [Generate deduplication report](#generate-deduplication-report)
+    - [Resolve potential duplicates](#resolve-potential-duplicates)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Discuss](#discuss)
 
 
 ## Unique ID creation
@@ -177,24 +188,35 @@ The fusion connector's correlation configuration depends on whether you are usin
 
 To configure the fusion connector in ISC, read these sections in order: 
 
-1. [Add fusion connector to ISC](#add-fusion-connector-to-isc)
-2. [Prerequisities](#prerequisites)
-3. [Create fusion connector in ISC](#create-fusion-connector-in-isc)
-4. [Configure connection details](#configure-connection-details)
-5. [Review and test connection](#review-and-test-connection)
-6. [Configure primary source](#configure-primary-source)
-    - [Base Configuration](#base-configuration)
-    - [Unique ID Configuration](#unique-id-configuration)
-    - [Merging/Mapping Configuration](#mergingmapping-configuration)
-7. [Discover schema](#discover-schema)
-8. [Create identity profile](#create-identity-profile)
-    - [Create provisioning plan](#create-provisioning-plan)
-9. [Aggregate entitlements](#aggregate-entitlements)
-10. [Aggregate accounts](#aggregate-accounts)
-11. [Add secondary sources](#add-secondary-sources)
-12. [Create access profiles for deduplication](#create-access-profiles-for-deduplication)
-13. [Generate deduplication report](#generate-deduplication-report)
-14. [Resolve potential duplicates](#resolve-potential-duplicates)
+- [Identity Fusion SaaS Connector](#identity-fusion-saas-connector)
+  - [Unique ID creation](#unique-id-creation)
+  - [Deduplication](#deduplication)
+  - [Mapping and merging accounts](#mapping-and-merging-accounts)
+  - [Connector modes](#connector-modes)
+  - [Account aggregation](#account-aggregation)
+  - [Correlation](#correlation)
+  - [Get started](#get-started)
+    - [Add fusion connector to ISC](#add-fusion-connector-to-isc)
+    - [Prerequisites](#prerequisites)
+    - [Create fusion connector in ISC](#create-fusion-connector-in-isc)
+    - [Configure connection details](#configure-connection-details)
+    - [Review and test connection](#review-and-test-connection)
+    - [Configure primary source](#configure-primary-source)
+      - [Base Configuration](#base-configuration)
+      - [Unique ID Configuration](#unique-id-configuration)
+      - [Merging/Mapping Configuration](#mergingmapping-configuration)
+    - [Discover schema](#discover-schema)
+    - [Create identity profile](#create-identity-profile)
+      - [Create provisioning plan](#create-provisioning-plan)
+    - [Aggregate entitlements](#aggregate-entitlements)
+    - [Aggregate accounts](#aggregate-accounts)
+    - [Add secondary sources](#add-secondary-sources)
+    - [Create access profiles for deduplication](#create-access-profiles-for-deduplication)
+    - [Generate deduplication report](#generate-deduplication-report)
+    - [Resolve potential duplicates](#resolve-potential-duplicates)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Discuss](#discuss)
 
 ### Add fusion connector to ISC
 
@@ -294,6 +316,28 @@ The fusion connector must be able to connect to the ISC APIs to be able to read 
 Once you have completed the connection details, it will look something like this: 
 
 ![Getting Started 1](assets/images/getting-started-1.png)
+
+*The minimum scopes necessary to be set on the PAT is as follows:*
+- sp:search:read
+- idn:identity:read
+- idn:identity:manage
+- idn:accounts:read
+- idn:accounts:manage
+- idn:workgroup:read
+- idn:sources:read
+- idn:sources:manage
+- idn:provisioning-policy:read
+- idn:provisioning-policy:manage
+- idn:source-schema:read
+- idn:source-schema:manage
+- sp:forms:manage
+- idn:transform:read
+- idn:transform:manage
+- sp:workflow:read
+- sp:workflow:manage
+- sp:workflow-execute:external
+- idn:entitlement:read
+- idn:task-management:read
 
 ### Review and test connection
 
