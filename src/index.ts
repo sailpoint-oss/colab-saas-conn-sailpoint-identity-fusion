@@ -82,6 +82,11 @@ export const connector = async () => {
                 .listAuthoritativeAccounts()
                 .filter((x) => !processedAccountIDs.includes(x.id!) && x.uncorrelated === true)
 
+            if (config.batchProcessing && config.batchSize!) {
+                logger.info(`Processing ${config.batchSize!} accounts at a time.`)
+                pendingAccounts = pendingAccounts.slice(0, config.batchSize!)
+            }
+
             if (ctx.isMergingEnabled() && !ctx.isFirstRun()) {
                 //PROCESS FORM INSTANCES
                 logger.info('Processing existing unique forms.')
