@@ -1,9 +1,8 @@
-import axios, { AxiosInstance } from 'axios'
+import axios from 'axios'
 import axiosRetry from 'axios-retry'
 import {
     logger,
 } from '@sailpoint/connector-sdk'
-import axiosThrottle from 'axios-request-throttle'
 import {
     Configuration,
     CreateFormDefinitionRequestBeta,
@@ -52,6 +51,8 @@ import {
 import { URL } from 'url'
 import { RETRIES, TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
 import { retriesConfig, throttleConfig } from './axios'
+import { batchRetry } from './utils/batch'
+import { Agent } from 'https'
 
 const sleep = (ms: number) => {
     return new Promise((resolve) => setTimeout(resolve, ms))
@@ -476,8 +477,25 @@ export class SDKClient {
         return response.data
     }
 
-    async correlateAccount(identityId: string, id: string): Promise<object> {
-        const api = new AccountsApi(this.config)
+    async batchCorrelateAccounts(correlationConfigs: {identity: string, account: string}[], concurrency: number = 10) {
+        const agent = new Agent({ keepAlive: true, maxSockets: concurrency })
+
+        const correlations = await batchRetry(
+            correlationConfigs,
+            ({identity, account}: {identity: string, account: string}) => this.correlateAccount(identity, account, agent),
+            concurrency,
+            20,
+            (processed: number, total: number, duration: number) => logger.info(`Processed ${processed} of ${total} account correlations. Total batch duration: ${duration.toFixed(0)}ms.`),
+            (attempt: number, maxRetries: number, wait: number) => logger.info(`Retry ${attempt}/${maxRetries} for batch request after waiting ${wait}ms`),
+            true
+        )
+        return correlations
+    }
+
+    async correlateAccount(identityId: string, id: string, agent?: Agent): Promise<object> {
+        const api = new AccountsApi(this.config, undefined, axios.create({
+            httpsAgent: agent
+        }))
         const requestBody: JsonPatchOperation[] = [
             {
                 op: 'replace',
@@ -488,9 +506,20 @@ export class SDKClient {
         try {
             const response = await api.updateAccount({ id, requestBody })
             return response.data
-        } catch (error) {
+        } catch (error: any) {
+            if (error.response?.status === 429) {
+                throw error
+            }
             return {}
         }
+    }
+
+    async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[]): Promise<FormDefinitionResponseBeta[]> {
+        const forms = await batchRetry(
+            uniqueForms,
+            (form: CreateFormDefinitionRequestBeta) => this.createForm(form)
+        )
+        return forms
     }
 
     async createForm(form: CreateFormDefinitionRequestBeta): Promise<FormDefinitionResponseBeta> {
@@ -572,7 +601,7 @@ export class SDKClient {
             id,
             testWorkflowRequestBeta,
         })
-        console.log(`workflow sent. Response code ${response.status}`)
+        logger.info(`workflow sent. Response code ${response.status}`)
     }
 
     async triggerWorkflowExternal(

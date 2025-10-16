@@ -37,6 +37,7 @@ import {
     stringifyScore,
 } from './utils'
 import {
+    CONCURRENCY,
     EDITFORMNAME,
     NONAGGREGABLE_TYPES,
     TRANSFORM_NAME,
@@ -57,6 +58,7 @@ import { Action, ActionSource } from './model/action'
 import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
+import { batch } from './utils/batch'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -97,6 +99,8 @@ export class ContextHelper {
     // Counter to track number of account correlations performed
     private correlationCounter: number = 0
 
+    private accountsToCorrelate: {identity: string, account: string}[]
+
     constructor(config: Config) {
         this.config = config
         this.sources = []
@@ -118,6 +122,8 @@ export class ContextHelper {
         this.editFormInstances = []
         this.errors = []
         this.reviewerIDs = new Map<string, string[]>()
+
+        this.accountsToCorrelate = []
 
         logger.debug(lm(`Initializing SDK client.`, this.c))
         this.client = new SDKClient(this.config)
@@ -359,6 +365,14 @@ export class ContextHelper {
                 this.accounts.push(account)
             }
         }
+
+        // Build the account source map for faster lookups
+        logger.debug(lm('Building account source map for faster lookups.', c))
+        this.buildAccountSourceMap()
+
+        // Build accounts by identity ID map for faster lookups
+        logger.debug(lm('Building accounts by identity ID map for faster lookups.', c))
+        this.buildAccountsByIdentityIdLookup()
     }
 
     listProcessedAccountIDs(): string[] {
@@ -411,14 +425,6 @@ export class ContextHelper {
         // Build the authoritative accounts lookup map for O(1) access
         logger.debug(lm('Building authoritative accounts lookup map for faster access.', c))
         this.buildAuthoritativeAccountsLookup()
-
-        // Build the account source map for faster lookups
-        logger.debug(lm('Building account source map for faster lookups.', c))
-        this.buildAccountSourceMap()
-
-        // Build accounts by identity ID map for faster lookups
-        logger.debug(lm('Building accounts by identity ID map for faster lookups.', c))
-        this.buildAccountsByIdentityIdLookup()
     }
 
     private buildAuthoritativeAccountsLookup(): void {
@@ -511,15 +517,13 @@ export class ContextHelper {
         const uniqueAccounts: UniqueAccount[] = []
         logger.debug(lm('Updating accounts.', c))
 
-        const batchSize = 50
-        const concurrency = 25
-
+        const batchSize = 500
         for (let i = 0; i < this.accounts.length; i += batchSize) {
             const batchStartTime = performance.now()
             const batch = this.accounts.slice(i, i + batchSize)
 
             // Process accounts with controlled concurrency
-            const processedBatch = await this.processAccountsWithConcurrency(batch, concurrency)
+            const processedBatch = await this.processAccountsWithConcurrency(batch, CONCURRENCY.PROCESS_ACCOUNTS)
             uniqueAccounts.push(...processedBatch)
 
             // Send processed accounts immediately
@@ -541,42 +545,26 @@ export class ContextHelper {
             batch.length = 0
         }
 
-        // Log the total number of correlations performed during this batch processing
-        if (this.correlationCounter > 0) {
-            logger.info(
-                lm(
-                    `Performed ${this.correlationCounter} account correlations in total. These are expensive API operations that can impact performance.`,
-                    c
-                )
-            )
-        } else {
-            logger.info(lm(`No account correlations were needed during this batch processing.`, c))
-        }
+        // Run correlations
+        logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
+        await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS);
 
         // Reset counter for next batch
         this.correlationCounter = 0
         this.accounts = []
+        this.accountsToCorrelate = []
 
         return uniqueAccounts
     }
 
-    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {
-        const results: UniqueAccount[] = []
-        for (let i = 0; i < accounts.length; i += concurrency) {
-            const chunkStartTime = performance.now()
-            const chunk = accounts.slice(i, i + concurrency)
-            const processedChunk = await Promise.all(chunk.map((account) => this.refreshUniqueAccount(account)))
-            results.push(...processedChunk)
-            const chunkEndTime = performance.now()
-            logger.debug(
-                `Chunk ${i / concurrency + 1} processing time: ${(chunkEndTime - chunkStartTime).toFixed(0)}ms`
-            )
-
-            // Log interim correlation count if any correlations happened in this chunk
-            if (this.correlationCounter > 0) {
-                logger.debug(`Performed ${this.correlationCounter} correlations so far`)
-            }
-        }
+    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {       
+        const results = await batch(
+            accounts,
+            (account) => this.refreshUniqueAccount(account),
+            concurrency,
+            (processed: number, total: number) => logger.debug(`Processed ${processed} of ${total} accounts`)
+        );
+        
         return results
     }
 
@@ -699,8 +687,7 @@ export class ContextHelper {
                         const sourceAccount = await this.getSourceAccount(acc)
                         if (sourceAccount && sourceAccount.uncorrelated) {
                             // This is the slow operation - correlating an uncorrelated account with an identity
-                            logger.debug(lm(`Correlating ${acc} account with ${account.identity?.name}.`, c, 1))
-                            await this.correlateAccount(account.identityId! as string, acc)
+                            this.accountsToCorrelate.push({identity: account.identityId!, account: acc})
                             sourceAccounts.push(sourceAccount)
                             accountIds.push(acc)
                         }
@@ -1033,6 +1020,15 @@ export class ContextHelper {
         return this.editForms
     }
 
+    async createUniqueForms(forms: Map<string, UniqueForm>) {
+        const uniqueFormNames = this.uniqueForms.map((x) => x.name)
+        const nonExistentForms = Array.from(forms.values()).filter((x) => !uniqueFormNames.includes(x.name))
+        const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
+        
+        const formsCreated = await this.client.batchCreateForms(nonExistentForms);
+        return [...formsCreated, ...existingForms]
+    }
+
     async createUniqueForm(form: UniqueForm): Promise<FormDefinitionResponseBeta> {
         const c = 'createUniqueForm'
         const existingForm = this.uniqueForms.find((x) => x.name === form.name)
@@ -1124,7 +1120,10 @@ export class ContextHelper {
             attributes: for (const attribute of Object.keys(accountAttributes)) {
                 const iValue = accountAttributes[attribute] as string
                 const cValue = candidate.attributes![attribute] as string
-                if (iValue && cValue) {
+                
+                // Only evaluate when both attributes contain a value.
+                // Skip if only one is NULL
+                if (iValue && cValue && iValue.trim() != "" && cValue.trim() != "") {
                     const similarity = lig3(iValue, cValue)
                     const score = similarity * 100
                     if (!this.config.global_merging_score) {
@@ -1133,7 +1132,10 @@ export class ContextHelper {
                             continue candidates
                         }
                     }
+
                     scores.set(attribute, score)
+                } else if (iValue != cValue) {
+                    continue candidates
                 }
             }
 

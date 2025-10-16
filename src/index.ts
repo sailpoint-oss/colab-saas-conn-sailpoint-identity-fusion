@@ -31,6 +31,9 @@ import { ContextHelper } from './contextHelper'
 import { PROCESSINGWAIT } from './constants'
 import { UniqueAccount } from './model/account'
 import { Config } from './model/config'
+import { UniqueForm } from './model/form'
+import { batch } from './utils/batch'
+import { CONCURRENCY } from './constants'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
@@ -208,24 +211,24 @@ export const connector = async () => {
             // console.timeLog('stdAccountList', 'baseline')
 
             //PROCESS UNCORRELATED ACCOUNTS
-            logger.info('Processing uncorrelated accounts.')
+            logger.info(`Processing ${pendingAccounts.length} uncorrelated accounts.`)
             const reviewerIDs = ctx.listAllReviewerIDs()
-            let processed = 0;
-            for (const uncorrelatedAccount of pendingAccounts) {
-                processed++;
+            // Batch the uncorrelated account processing
+            const uniqueForms = new Map<string, UniqueForm>();
+            await batch(pendingAccounts, async (uncorrelatedAccount) => {
                 try {
                     const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
                     if (uniqueForm && reviewerIDs.length > 0) {
                         logger.debug(`Creating merging form`)
-                        const form = await ctx.createUniqueForm(uniqueForm)
+                        uniqueForms.set(uniqueForm.name, uniqueForm);
                     }
                 } catch (e) {
                     ctx.handleError(e)
                 }
-                if (processed % 1000 === 0) {
-                    logger.info(`Processed ${processed} uncorrelated accounts so far...`)
-                }
-            }
+            }, CONCURRENCY.UNCORRELATED_ACCOUNTS, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`));
+            // Moved out to process Web Requests in parallel.
+            await ctx.createUniqueForms(uniqueForms)
+
             // console.timeLog('stdAccountList', 'uncorrelated accounts')
 
             if (await ctx.isMergingEnabled()) {
@@ -332,9 +335,6 @@ export const connector = async () => {
             //BUILD RESULTING ACCOUNTS
             logger.info('Sending accounts.')
             await ctx.listAndSendUniqueAccounts(res);
-
-            
-            
         } finally {
             clearInterval(interval)
         }
