@@ -850,9 +850,20 @@ export class ContextHelper {
             (processed: number, total: number) => logger.info(lm(`Processed ${processed} of ${total} uncorrelated accounts...`, c, 1))
         );
 
+        // Cleanup memory
+        this.releaseSourceData()
+        this.releaseIdentityData()
+        this.authoritativeAccounts = []
+        this.accounts = []
+
+        logger.debug(`Setting up the email...`)
+
         const email = new ReportEmail(analysis, this.config.merging_attributes, identity)
+
+        logger.debug(`Email input: ${email.input}`)
+
         logger.info(lm(`Sending report to ${identity.displayName}`, c, 1))
-        this.sendEmail(email)
+        await this.sendEmail(email)
     }
 
     async buildUniqueAccount(account: Account, status: string | string[] | undefined, msg: string): Promise<Account> {
@@ -1125,6 +1136,9 @@ export class ContextHelper {
         const accountAttributes = buildAccountAttributesObject(account, this.config.merging_map, true)
         const length = Object.keys(accountAttributes).length
 
+        // Skip if no match criteria or account has no data
+        if (length == 0 || Object.values(accountAttributes).join("").length == 0) return similarMatches;
+
         candidates: for (const candidate of this.identitiesById.values()) {
             // const scores: number[] = []
             const scores = new Map<string, number>()
@@ -1180,6 +1194,7 @@ export class ContextHelper {
 
         let similarMatches: SimilarAccountMatch[] = []
         similarMatches = this.findSimilarMatches(uncorrelatedAccount)
+        
         if (similarMatches.length > 0) {
             logger.debug(lm(`Similar matches found`, c, 1))
             for (const match of similarMatches) {
