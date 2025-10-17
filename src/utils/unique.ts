@@ -30,7 +30,7 @@ export const buildUniqueID = async (
     if (!velocity) {
         // Parse and compile template only once, then cache it
         let template = velocityjs.parse(config.uid_template)
-        if (!template.find((x) => x.id === 'counter')) {
+        if (!template.find((x: any) => x.id === 'counter')) {
             template = velocityjs.parse(config.uid_template + '$counter')
         }
         velocity = new velocityjs.Compile(template)
