@@ -44,7 +44,7 @@ export const sleep = (ms: number) => {
 }
 
 export const capitalizeFirstLetter = (str: string) => {
-    return str.charAt(0).toUpperCase() + str.slice(1)
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
 }
 
 export const deleteArrayItem = (array: any[], item: string | number) => {
