@@ -328,7 +328,7 @@ export const stringifyScore = (score: Map<string, string>): string => {
 }
 
 export const stringifyIdentity = (identity: IdentityDocument, url: string): string => {
-    const displayName = `${identity.displayName} <b><a href="${url}/ui/a/admin/identities/${identity.id}/details/attributes">${identity.attributes!.uid}</a></b>)`
+    const displayName = `${identity.displayName} (<b><a href="${url}/ui/a/admin/identities/${identity.id}/details/attributes">${identity.attributes!.uid}</a></b>)`
 
     return displayName
 }
