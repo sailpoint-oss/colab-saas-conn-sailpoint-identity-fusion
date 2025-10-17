@@ -457,7 +457,7 @@ export class ContextHelper {
                 const candidateAccounts = this.authoritativeAccountsById.get(accountId)
                 if (candidateAccounts) {
                     // Filter only by source name since ID already matches
-                    const sourceAccounts = candidateAccounts.filter((x) => this.config.sources.includes(x.sourceName))
+                    const sourceAccounts = candidateAccounts.filter((x) => x.sourceName && this.config.sources.includes(x.sourceName))
                     
                     if (sourceAccounts.length > 0) {
                         this.accountSourceMap.set(accountId, sourceAccounts)
