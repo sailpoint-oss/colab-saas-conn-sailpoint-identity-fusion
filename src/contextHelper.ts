@@ -847,7 +847,7 @@ export class ContextHelper {
             pendingAccounts, 
             (uncorrelatedAccount) => this.analyzeUncorrelatedAccount(uncorrelatedAccount),
             CONCURRENCY.REPORT, 
-            (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`)
+            (processed: number, total: number) => logger.info(lm(`Processed ${processed} of ${total} uncorrelated accounts...`, c, 1))
         );
 
         const email = new ReportEmail(analysis, this.config.merging_attributes, identity)
