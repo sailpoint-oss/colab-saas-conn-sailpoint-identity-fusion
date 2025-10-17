@@ -1002,13 +1002,23 @@ export class ContextHelper {
         this.uniqueForms = forms.filter((x) => x.name?.startsWith(this.getUniqueFormName()))
         this.editForms = forms.filter((x) => x.name?.startsWith(this.getEditFormName()))
 
-        let formInstances = await this.client.listFormInstances()
+        // Fetch form instances for each unique form
+        const uniqueFormInstancesPromises = this.uniqueForms.map((form) =>
+            form.id ? this.client.listFormInstances(form.id) : Promise.resolve([])
+        )
+        const uniqueFormInstancesArrays = await Promise.all(uniqueFormInstancesPromises)
+        this.uniqueFormInstances = uniqueFormInstancesArrays
+            .flat()
+            .sort((a, b) => new Date(a.modified!).valueOf() - new Date(b.modified!).valueOf())
 
-        formInstances = formInstances.sort((a, b) => new Date(a.modified!).valueOf() - new Date(b.modified!).valueOf())
-        const uniqueFormIDs = this.uniqueForms.map((x) => x.id)
-        this.uniqueFormInstances = formInstances.filter((x) => uniqueFormIDs.includes(x.formDefinitionId))
-        const editFormIDs = this.editForms.map((x) => x.id)
-        this.editFormInstances = formInstances.filter((x) => editFormIDs.includes(x.formDefinitionId))
+        // Fetch form instances for each edit form
+        const editFormInstancesPromises = this.editForms.map((form) =>
+            form.id ? this.client.listFormInstances(form.id) : Promise.resolve([])
+        )
+        const editFormInstancesArrays = await Promise.all(editFormInstancesPromises)
+        this.editFormInstances = editFormInstancesArrays
+            .flat()
+            .sort((a, b) => new Date(a.modified!).valueOf() - new Date(b.modified!).valueOf())
     }
 
     listUniqueForms(): FormDefinitionResponseBeta[] {
