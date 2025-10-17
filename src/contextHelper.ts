@@ -842,11 +842,11 @@ export class ContextHelper {
         const authoritativeAccounts = this.listAuthoritativeAccounts()
         const pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
 
-        logger.info(lm(`Running analysis on ${pendingAccounts} pending accounts`, c, 1))
+        logger.info(lm(`Running analysis on ${pendingAccounts.length} pending accounts`, c, 1))
         const analysis = await batch(
             pendingAccounts, 
             (uncorrelatedAccount) => this.analyzeUncorrelatedAccount(uncorrelatedAccount),
-            CONCURRENCY.UNCORRELATED_ACCOUNTS, 
+            CONCURRENCY.REPORT, 
             (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`)
         );
 
