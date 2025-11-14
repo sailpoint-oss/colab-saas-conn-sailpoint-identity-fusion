@@ -198,7 +198,6 @@ export class ContextHelper {
         this.accountSourceMap = new Map<string, Account[]>()
         this.authoritativeAccountsById = new Map<string, Account[]>()
         this.accountsByIdentityId = new Map<string, Account>()
-        this.mergingMapByIdentity = new Map<string, any>()
         // this.currentIdentities = []
         this.uniqueForms = []
         this.uniqueFormInstances = []
