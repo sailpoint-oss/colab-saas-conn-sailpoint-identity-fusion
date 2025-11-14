@@ -13,7 +13,7 @@ import {
     FormInstanceCreatedByBeta,
     FormInstanceRecipientBeta,
     FormInstanceResponseBeta,
-    FormInstanceResponseBetaStateEnum,
+    FormInstanceResponseBetaStateBeta,
     Paginator,
     Search,
     SearchApi,
@@ -453,10 +453,14 @@ export class SDKClient {
         const response = await api.deleteFormDefinition({ formDefinitionID })
     }
 
-    async listFormInstances(): Promise<FormInstanceResponseBeta[]> {
+    async listFormInstances(formDefinitionId?: string): Promise<FormInstanceResponseBeta[]> {
         const api = new CustomFormsBetaApi(this.config)
 
-        const response = await api.searchFormInstancesByTenant()
+        const axiosOptions = formDefinitionId
+            ? { params: { filters: `formDefinitionId eq "${formDefinitionId}"` } }
+            : undefined
+
+        const response = await api.searchFormInstancesByTenant(axiosOptions)
 
         return response.data ? (response.data as FormInstanceResponseBeta[]) : []
     }
@@ -555,14 +559,13 @@ export class SDKClient {
             standAloneForm: true,
         }
 
-        const response = await api.createFormInstance(body)
-
-        return response.data
+        const response = await api.createFormInstance({ body });
+        return response.data;
     }
 
     async setFormInstanceState(
         formInstanceId: string,
-        state: FormInstanceResponseBetaStateEnum
+        state: FormInstanceResponseBetaStateBeta
     ): Promise<FormInstanceResponseBeta> {
         const api = CustomFormsBetaApiFactory(this.config)
 
@@ -573,7 +576,7 @@ export class SDKClient {
                 value: state,
             },
         ]
-        const response = await api.patchFormInstance(formInstanceId, body)
+        const response = await api.patchFormInstance({ formInstanceID: formInstanceId, body })
 
         return response.data
     }
@@ -677,7 +680,7 @@ export class SDKClient {
     async aggregateAccounts(id: string): Promise<void> {
         const sourceApi = new SourcesBetaApi(this.config)
 
-        const response = await sourceApi.importAccounts({ id })
+        const response = await sourceApi.importAccounts({ sourceId: id })
         const taskApi = new TaskManagementBetaApi(this.config)
 
         let count = TASKRESULTRETRIES

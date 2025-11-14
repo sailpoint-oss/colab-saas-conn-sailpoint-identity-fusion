@@ -153,7 +153,8 @@ export const opLog = (config: any, input: any) => {
 }
 
 //================ SOURCES ================
-export const getOwnerFromSource = (source: Source): OwnerDto => {
+export const getOwnerFromSource = (source: Source): OwnerDto | undefined => {
+    if (!source.owner) return undefined
     return {
         type: 'IDENTITY',
         id: source.owner.id,

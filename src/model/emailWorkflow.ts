@@ -36,6 +36,7 @@ export class EmailWorkflow implements WorkflowsBetaApiCreateWorkflowRequest {
                 type: 'EXTERNAL',
                 attributes: {
                     id: 'idn:external:id',
+                    frequency: 'daily',
                 },
             },
         }
