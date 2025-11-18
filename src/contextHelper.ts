@@ -223,6 +223,7 @@ export class ContextHelper {
         }
 
         if (!lazy) {
+            await this.checkSelectedSourcesAggregation()
             this.mergingEnabled = this.config.merging_isEnabled
             const promises = []
             promises.push(this.fetchIdentities())

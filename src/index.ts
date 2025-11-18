@@ -77,7 +77,6 @@ export const connector = async () => {
 
             //Compiling info
             logger.info('Loading data.')
-            await ctx.checkSelectedSourcesAggregation()
             // console.timeLog('stdAccountList', 'init')
             await ctx.init(input.schema)
             const processedAccountIDs = ctx.listProcessedAccountIDs()
