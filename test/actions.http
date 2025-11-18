@@ -50,14 +50,14 @@ Content-Type: application/json
 
 {
   "type": "std:account:read",
-  "input": {"identity":"2509","key":{"simple":{"id":"2509"}}},
+  "input": {"identity":"c9bf3205-a90b-4946-87b1-1be697e8b1b8"},
   "config": {{config}}
 }
 
 HTTP/1.1 200  - OK
 x-powered-by: Express
 content-type: application/x-ndjson
-date: Mon, 29 Sep 2025 09:41:30 GMT
+date: Mon, 17 Nov 2025 17:07:40 GMT
 connection: close
 transfer-encoding: chunked
 ###

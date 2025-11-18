@@ -24,8 +24,11 @@ config.json
 
 /reports
 /exportedObjects
+/test
+
 # Sentry Config File
 .sentryclirc
 .httpyac.json
 
 .env
+package-lock.json
