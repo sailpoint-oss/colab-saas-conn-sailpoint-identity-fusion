@@ -114,6 +114,12 @@
                             "label": "Force source aggregation?",
                             "type": "checkbox",
                             "required": false
+                        },
+                        {
+                            "key": "resetProcessingFlag",
+                            "label": "Resets processing flag in case of unfinished processing",
+                            "type": "checkbox",
+                            "required": false
                         }
                     ]
                 },

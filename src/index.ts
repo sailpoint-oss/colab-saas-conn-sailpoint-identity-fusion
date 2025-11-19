@@ -70,15 +70,19 @@ export const connector = async () => {
         }, PROCESSINGWAIT)
 
         const ctx = new ContextHelper(config)
+        let processingLockSet = false
         try {
             opLog(config, input)
-            //Resetting accounts
-            if (config.reset) return
 
             //Compiling info
             logger.info('Loading data.')
             // console.timeLog('stdAccountList', 'init')
-            await ctx.init(input.schema)
+            // The init method will check and set the processing lock
+            await ctx.init(input.schema, false, true)
+            processingLockSet = true
+
+            //Resetting accounts
+            if (config.reset) return
             const processedAccountIDs = ctx.listProcessedAccountIDs()
             let pendingAccounts = ctx
                 .listAuthoritativeAccounts()
@@ -336,6 +340,11 @@ export const connector = async () => {
             await ctx.listAndSendUniqueAccounts(res);
         } finally {
             clearInterval(interval)
+            
+            // Release processing lock if it was set
+            if (processingLockSet) {
+                await ctx.releaseProcessLock()
+            }
         }
 
         ctx.logErrors(context, input)

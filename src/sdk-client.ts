@@ -431,6 +431,14 @@ export class SDKClient {
         return response.data
     }
 
+    async patchSource(id: string, jsonPatch: JsonPatchOperation[]) {
+        const api = new SourcesApi(this.config)
+
+        const response = await api.updateSource({ id, jsonPatchOperation: jsonPatch })
+
+        return response.data
+    }
+
     async listSourceSchemas(sourceId: string) {
         const api = new SourcesApi(this.config)
 

@@ -59,6 +59,7 @@ import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
 import { batch } from './utils/batch'
+import path from 'path'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -155,7 +156,7 @@ export class ContextHelper {
         this.editForms = []
     }
 
-    async init(schema?: AccountSchema, lazy?: boolean) {
+    async init(schema?: AccountSchema, lazy?: boolean, setLock?: boolean) {
         logger.debug(lm(`Looking for connector instance`, this.c))
 
         const id = this.config!.spConnectorInstanceId as string
@@ -166,6 +167,12 @@ export class ContextHelper {
         if (!this.source) {
             throw new ConnectorError('No connector source was found on the tenant.')
         }
+
+        // Set process lock if requested (typically for account aggregation)
+        if (setLock) {
+            await this.setProcessLock()
+        }
+        
 
         if (schema) {
             this.loadSchema(schema)
@@ -246,6 +253,75 @@ export class ContextHelper {
             return this.source
         } else {
             throw new ConnectorError('No connector source was found on the tenant.')
+        }
+    }
+
+    getClient(): SDKClient {
+        return this.client
+    }
+
+    async setProcessLock(): Promise<void> {
+        if (!this.source) {
+            throw new ConnectorError('Source must be initialized before setting process lock')
+        }
+
+        if (this.config.resetProcessingFlag) {
+            logger.info('Resetting processing flag as per configuration.')
+            return;
+        }
+
+        const sourceId = this.source.id!
+        const source = await this.client.getSource(sourceId)
+        
+        const processing = (source.connectorAttributes as any)?.processing
+        if (processing === 'true' || processing === true) {
+            throw new ConnectorError(
+                'Cannot aggregate accounts, another connector instance is running or the previous connector crashed. Check to ensure the connector is not in process and try again',
+                ConnectorErrorType.Generic
+            )
+        }
+
+        logger.info('Setting processing lock to true.')
+        if (processing === undefined) {
+            logger.info('Processing attribute not found, initializing it to true.')
+            await this.client.patchSource(sourceId, [
+                {
+                    op: 'add',
+                    path: '/connectorAttributes/processing',
+                    value: 'true',
+                },
+            ]);
+        } else {
+            await this.client.patchSource(sourceId, [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/processing',
+                    value: 'true',
+                },
+            ])
+        }
+
+    }
+
+    async releaseProcessLock(): Promise<void> {
+        try {
+            if (!this.source) {
+                logger.warn('Cannot release processing lock: source not initialized')
+                return
+            }
+
+            logger.info('Releasing processing lock.')
+            const sourceId = this.source.id!
+            await this.client.patchSource(sourceId, [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/processing',
+                    value: 'false',
+                },
+            ])
+        } catch (error) {
+            logger.error('Failed to release processing lock:', error)
+            // Don't throw here as this is typically called in cleanup
         }
     }
 

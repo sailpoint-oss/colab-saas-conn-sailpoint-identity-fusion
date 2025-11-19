@@ -53,4 +53,5 @@ export interface Config {
     getScore: (attribute?: string) => number
     batchProcessing?: boolean
     batchSize?: number
+    resetProcessingFlag?: boolean
 }
