@@ -60,6 +60,7 @@ import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
 import { batch } from './utils/batch'
 import path from 'path'
+import { get } from 'http'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -671,8 +672,20 @@ export class ContextHelper {
         if (this.initiated === 'full') {
             sourceAccounts = this.accountSourceMap.get(account.id!) ?? []
         } else {
-            const accounts = await this.client.getAccountsByIdentity(account.identityId!)
-            sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.sourceName!))
+            // create a list of only the source accoutns that tie back to this account
+            const currentAccounts = await this.client.getAccountsByIdentity(account.identityId!)
+            const currentAccountIds = currentAccounts.map((x) => x.id!)
+            for (const sourceAccount of account.attributes!.accounts) {
+                if (!currentAccountIds.includes(sourceAccount)) {
+                    const accountNative = await this.client.getAccount(sourceAccount)
+                    if (accountNative){
+                        currentAccounts.push(accountNative);
+                    }
+                }
+            }
+            
+            
+            sourceAccounts = currentAccounts.filter((x) => this.config.sources.includes(x.sourceName!))
         }
 
         if (sourceAccounts.length === 0) {
@@ -699,6 +712,14 @@ export class ContextHelper {
         }
     }
 
+    getValidAccountIds(initialAccountIds: string[]): Set<string> {
+        if (this.initiated === 'full') {
+            return new Set(initialAccountIds.filter((x) => this.authoritativeAccountsById.has(x)))
+        } else {
+            return new Set(initialAccountIds)
+        }
+    }
+
     async refreshUniqueAccount(account: Account): Promise<UniqueAccount> {
         const c = 'refreshUniqueAccount'
 
@@ -706,7 +727,7 @@ export class ContextHelper {
 
         const sourceAccounts = await this.listSourceAccounts(account)
         const initialAccountIds: string[] = sourceAccounts.map((x) => x.id!)
-        const validAccountIds = new Set(initialAccountIds.filter((x) => this.authoritativeAccountsById.has(x)))
+        const validAccountIds = this.getValidAccountIds(initialAccountIds)
         const currentAccountIds: string[] = []
         if (validAccountIds.size < initialAccountIds.length) {
             logger.debug(lm(`Source accounts have changed. Refreshing account.`, c, 1))
