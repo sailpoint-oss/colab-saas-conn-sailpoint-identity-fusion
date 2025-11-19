@@ -716,7 +716,7 @@ export class ContextHelper {
         if (this.initiated === 'full') {
             return new Set(initialAccountIds.filter((x) => this.authoritativeAccountsById.has(x)))
         } else {
-            return new Set(initialAccountIds)
+            return new Set()
         }
     }
 
@@ -739,7 +739,7 @@ export class ContextHelper {
             // Check the account ids to see if it has changed from prior aggregation to now. If so, refresh account
             const accounts = identity.accounts!
             for (const sourceAccount of accounts) {
-                if (this.authoritativeAccountsById.has(account.id!)) {
+                if (this.authoritativeAccountsById.has(account.id!) || this.initiated === 'lazy') {
                     if (!validAccountIds.has(account.id!)) {
                         validAccountIds.add(account.id!)
                         this.accountsToCorrelate.push({identity: identity.id, account:sourceAccount.id!})
@@ -990,6 +990,8 @@ export class ContextHelper {
             account.attributes!.reviews ??= []
             account.modified = new Date(0).toISOString()
             const uniqueAccount = await this.refreshUniqueAccount(account)
+
+            await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS);
             return uniqueAccount
         } else {
             throw new ConnectorError('Account not found', ConnectorErrorType.NotFound)
