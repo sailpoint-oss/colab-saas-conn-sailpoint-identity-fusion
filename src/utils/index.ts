@@ -27,6 +27,14 @@ export const pushNewItem = <T>(item: T, list: T[]) => {
     }
 }
 
+export const trimToNull = (str: string): string | null => {
+    if (str === null || typeof str === 'undefined') {
+        return null
+    }
+    const trimmedStr = String(str).trim()
+    return trimmedStr === '' ? null : trimmedStr
+}
+
 export const envInfo = () => {
     logger.info({ '--CPU--': os.cpus() })
 }
@@ -36,7 +44,7 @@ export const sleep = (ms: number) => {
 }
 
 export const capitalizeFirstLetter = (str: string) => {
-    return str.charAt(0).toUpperCase() + str.slice(1)
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
 }
 
 export const deleteArrayItem = (array: any[], item: string | number) => {
@@ -321,7 +329,7 @@ export const stringifyScore = (score: Map<string, string>): string => {
 }
 
 export const stringifyIdentity = (identity: IdentityDocument, url: string): string => {
-    const displayName = `${identity.displayName} **[${identity.attributes!.uid}](${url}/ui/a/admin/identities/${identity.id}/details/attributes)**)`
+    const displayName = `${identity.displayName} (<b><a href="${url}/ui/a/admin/identities/${identity.id}/details/attributes">${identity.attributes!.uid}</a></b>)`
 
     return displayName
 }

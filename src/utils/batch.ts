@@ -1,5 +1,3 @@
-import { REQUESTSPERSECOND } from '../constants'
-
 export async function batch<T, R = any>(
     items: T[],
     processFunction: (item: T) => Promise<R>,

@@ -69,27 +69,36 @@ export class ReportEmail implements TestWorkflowRequestBeta {
 
         let body = '\n'
         const attributeNames = attributes.map((x) => capitalizeFirstLetter(x))
-        body += '| ' + ['ID', 'Name', 'Source name', ...attributeNames, 'Result'].join(' | ') + ' |\n'
-        body += '|' + ' --- |'.repeat(4 + attributes.length) + '\n '
+
+        // Start Table
+        body += `<table style="border-collapse: collapse;width: 100%;border: 1px solid #ccc;font-family: Arial, sans-serif;">`
+
+        // Build Header
+        const header = ['ID', 'Name', 'Source name', ...attributeNames, 'Result']
+            .map(
+                (attr) =>
+                    `<th style="padding: 12px 15px;text-align: left;border-bottom: 1px solid #ddd;background-color: #4285f4; /* Blueish header color */color: white;">${attr}</th>`
+            )
+            .join('')
+        body += `<tr>${header}</tr>`
+
+        // Build Rows
         for (const analysis of analyses) {
             const attributeValues = attributes.map((x) => analysis.account.attributes![x])
             const { nativeIdentity, name, sourceName } = analysis.account
             const result = analysis.results.map((x) => `- ${x}`).join('<br/>')
-            const record = '| ' + [nativeIdentity, name, sourceName, ...attributeValues, result].join(' | ') + ' |\n'
-            body += record
+            const record = [nativeIdentity, name, sourceName, ...attributeValues, result]
+                .map(
+                    (str) =>
+                        `<td style="padding: 12px 15px;text-align: left;border-bottom: 1px solid #ddd;">${str ? str : ''}</td>`
+                )
+                .join('')
+
+            body += `<tr>${record}</tr>`
         }
 
-        // table = md.render(table)
-        body = md.render(body)
-        body = body.replace(
-            /<table>/g,
-            '<table style="border-collapse: collapse;width: 100%;border: 1px solid #ccc;font-family: Arial, sans-serif;">'
-        )
-        body = body.replace(
-            /<th>/g,
-            '<th style="padding: 12px 15px;text-align: left;border-bottom: 1px solid #ddd;background-color: #4285f4; /* Blueish header color */color: white;">'
-        )
-        body = body.replace(/<td>/g, '<td style="padding: 12px 15px;text-align: left;border-bottom: 1px solid #ddd;">')
+        // End Table
+        body += `</table>`
 
         this.input = {
             recipients: [recipient.attributes!.email],

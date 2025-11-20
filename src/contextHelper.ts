@@ -35,6 +35,7 @@ import {
     deleteArrayItem,
     stringifyIdentity,
     stringifyScore,
+    trimToNull,
 } from './utils'
 import {
     CONCURRENCY,
@@ -910,13 +911,32 @@ export class ContextHelper {
         const c = 'buildReport'
         const fusionAccount = (await this.getFusionAccount(id)) as Account
         const identity = (await this.getIdentityById(fusionAccount.identityId!)) as IdentityDocument
-        const authoritativeAccounts = await this.listAuthoritativeAccounts()
+        const authoritativeAccounts = this.listAuthoritativeAccounts()
         const pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
-        const analysis = await Promise.all(pendingAccounts.map((x) => this.analyzeUncorrelatedAccount(x)))
+
+        logger.info(lm(`Running analysis on ${pendingAccounts.length} pending accounts`, c, 1))
+        const analysis = await batch(
+            pendingAccounts,
+            (uncorrelatedAccount) => this.analyzeUncorrelatedAccount(uncorrelatedAccount),
+            CONCURRENCY.REPORT,
+            (processed: number, total: number) =>
+                logger.info(lm(`Processed ${processed} of ${total} uncorrelated accounts...`, c, 1))
+        )
+
+        // Cleanup memory
+        this.releaseSourceData()
+        this.releaseIdentityData()
+        this.authoritativeAccounts = []
+        this.accounts = []
+
+        logger.debug(`Setting up the email...`)
 
         const email = new ReportEmail(analysis, this.config.merging_attributes, identity)
+
+        logger.debug(`Email input: ${email.input}`)
+
         logger.info(lm(`Sending report to ${identity.displayName}`, c, 1))
-        this.sendEmail(email)
+        await this.sendEmail(email)
     }
 
     async buildUniqueAccount(account: Account, status: string | string[] | undefined, msg: string): Promise<Account> {
@@ -1104,6 +1124,8 @@ export class ContextHelper {
     }
 
     async createUniqueForms(forms: Map<string, UniqueForm>) {
+        const c = 'createUniqueForms'
+
         const uniqueFormNames = this.uniqueForms.map((x) => x.name)
         const nonExistentForms = Array.from(forms.values()).filter((x) => !uniqueFormNames.includes(x.name))
         const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
@@ -1198,16 +1220,19 @@ export class ContextHelper {
         const accountAttributes = buildAccountAttributesObject(account, this.config.merging_map, true)
         const length = Object.keys(accountAttributes).length
 
+        // Skip if no match criteria or account has no data
+        if (length == 0 || Object.values(accountAttributes).join('').length == 0) return similarMatches
+
         candidates: for (const candidate of this.identitiesById.values()) {
             // const scores: number[] = []
             const scores = new Map<string, number>()
             attributes: for (const attribute of Object.keys(accountAttributes)) {
-                const iValue = accountAttributes[attribute] as string
-                const cValue = candidate.attributes![attribute] as string
+                const iValue = ((accountAttributes[attribute] as string) || '').trim()
+                const cValue = ((candidate.attributes![attribute] as string) || '').trim()
 
                 // Only evaluate when both attributes contain a value.
                 // Skip if only one is NULL
-                if (iValue && cValue && iValue.trim() != '' && cValue.trim() != '') {
+                if (iValue && cValue) {
                     const similarity = lig3(iValue, cValue)
                     const score = similarity * 100
                     if (!this.config.global_merging_score) {
@@ -1218,8 +1243,6 @@ export class ContextHelper {
                     }
 
                     scores.set(attribute, score)
-                } else if (iValue != cValue) {
-                    continue candidates
                 }
             }
 
@@ -1255,6 +1278,7 @@ export class ContextHelper {
 
         let similarMatches: SimilarAccountMatch[] = []
         similarMatches = this.findSimilarMatches(uncorrelatedAccount)
+
         if (similarMatches.length > 0) {
             logger.debug(lm(`Similar matches found`, c, 1))
             for (const match of similarMatches) {
@@ -1315,7 +1339,7 @@ export class ContextHelper {
                         1
                     )
                     logger.info(msg)
-                    await this.correlateAccount(identicalMatch.id, uncorrelatedAccount.id!)
+                    this.accountsToCorrelate.push({ identity: identicalMatch.id, account: uncorrelatedAccount.id! })
                 }
                 // Check if similar match exists
             } else {

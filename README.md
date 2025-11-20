@@ -176,7 +176,6 @@ The fusion connector's correlation configuration depends on whether you are usin
 ## Get started
 
 To configure the fusion connector in ISC, read these sections in order:
-
 1. [Add fusion connector to ISC](#add-fusion-connector-to-isc)
 2. [Prerequisities](#prerequisites)
 3. [Create fusion connector in ISC](#create-fusion-connector-in-isc)
@@ -295,6 +294,29 @@ The fusion connector must be able to connect to the ISC APIs to be able to read 
 Once you have completed the connection details, it will look something like this:
 
 ![Getting Started 1](assets/images/getting-started-1.png)
+
+_The minimum scopes necessary to be set on the PAT is as follows:_
+
+- sp:search:read
+- idn:identity:read
+- idn:identity:manage
+- idn:accounts:read
+- idn:accounts:manage
+- idn:workgroup:read
+- idn:sources:read
+- idn:sources:manage
+- idn:provisioning-policy:read
+- idn:provisioning-policy:manage
+- idn:source-schema:read
+- idn:source-schema:manage
+- sp:forms:manage
+- idn:transform:read
+- idn:transform:manage
+- sp:workflow:read
+- sp:workflow:manage
+- sp:workflow-execute:external
+- idn:entitlement:read
+- idn:task-management:read
 
 ### Review and test connection
 
