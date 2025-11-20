@@ -750,11 +750,13 @@ export class ContextHelper {
         const identity = await this.getAccountIdentity(account)
         if (identity) {
             // Correlate uncorrelated accounts
-            const validAccountIds = this.getValidAccountIds(Array.from(currentAccountIds))
-            for (const validAccountId of validAccountIds) {
-                newAccountIds.push(validAccountId)
-                this.accountsToCorrelate.push({ identity: identity.id, account: validAccountId })
-                accountsChanged = true
+            const correlatedAccounts = identity.accounts ?? []
+            const correlatedAccountIds = correlatedAccounts.map((x) => x.id!)
+            for (const newAccountId of newAccountIds) {
+                if (!correlatedAccountIds.includes(newAccountId)) {
+                    this.accountsToCorrelate.push({ identity: identity.id, account: newAccountId })
+                    accountsChanged = true
+                }
             }
 
             if (accountsChanged) {
