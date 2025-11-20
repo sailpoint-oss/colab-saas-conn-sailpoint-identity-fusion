@@ -1,31 +1,31 @@
-# macOS General
+# macOS
 .DS_Store
 .AppleDouble
 .LSOverride
 
-# Visual Studio Code
+# IDE settings
 .vscode/
 .history/
-
-# Intellij
 .idea/
 *.iml
 
-# Dependency directories
+# Dependencies
 node_modules/
 
-# Compiled source
+# Build artifacts
 dist/
 coverage/
+reports/
+exportedObjects/
 
+# Test artifacts
+test/
+
+# Local configs
 *.local.http
 input.json
 config.json
-
-/reports
-/exportedObjects
-# Sentry Config File
 .sentryclirc
 .httpyac.json
-
 .env
+

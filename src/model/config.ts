@@ -51,4 +51,7 @@ export interface Config {
     reset: boolean
     forceAggregation: boolean
     getScore: (attribute?: string) => number
+    batchProcessing?: boolean
+    batchSize?: number
+    resetProcessingFlag?: boolean
 }

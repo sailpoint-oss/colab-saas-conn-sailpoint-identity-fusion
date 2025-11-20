@@ -67,6 +67,21 @@
                             "required": true
                         },
                         {
+                            "key": "batchProcessing",
+                            "label": "Enable batch processing?",
+                            "helpKey": "When enabled, the connector will process the specified number of accounts at a time.",
+                            "type": "checkbox",
+                            "required": false
+                        },
+                        {
+                            "key": "batchSize",
+                            "label": "Batch size",
+                            "parentKey": "batchProcessing",
+                            "parentValue": "true",
+                            "type": "number",
+                            "required": false
+                        },
+                        {
                             "key": "attributeMerge",
                             "label": "Default attribute merge from multiple sources",
                             "type": "radio",
@@ -97,6 +112,12 @@
                         {
                             "key": "forceAggregation",
                             "label": "Force source aggregation?",
+                            "type": "checkbox",
+                            "required": false
+                        },
+                        {
+                            "key": "resetProcessingFlag",
+                            "label": "Resets processing flag in case of unfinished processing",
                             "type": "checkbox",
                             "required": false
                         }

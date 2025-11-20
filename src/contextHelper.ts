@@ -60,6 +60,8 @@ import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
 import { batch } from './utils/batch'
+import path from 'path'
+import { get } from 'http'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -77,9 +79,9 @@ export class ContextHelper {
     private accounts: Account[]
     private authoritativeAccounts: Account[]
     // Map of account ID to source accounts for faster lookup
-    private accountSourceMap: Map<string, Account[]>
+    private accountSourceMap: Map<string, Account[]> = new Map<string, Account[]>()
     // Map of account ID to authoritative accounts for O(1) lookup
-    private authoritativeAccountsById: Map<string, Account[]>
+    private authoritativeAccountsById: Map<string, Account> = new Map<string, Account>()
     // Map of identity ID to accounts for O(1) lookup instead of find operations
     private accountsByIdentityId: Map<string, Account>
     // Map for config merging_map lookups by identity attribute
@@ -100,7 +102,7 @@ export class ContextHelper {
     // Counter to track number of account correlations performed
     private correlationCounter: number = 0
 
-    private accountsToCorrelate: {identity: string, account: string}[]
+    private accountsToCorrelate: { identity: string; account: string }[]
 
     constructor(config: Config) {
         this.config = config
@@ -112,8 +114,6 @@ export class ContextHelper {
         // this.currentIdentities = []
         this.accounts = []
         this.authoritativeAccounts = []
-        this.accountSourceMap = new Map<string, Account[]>()
-        this.authoritativeAccountsById = new Map<string, Account[]>()
         this.accountsByIdentityId = new Map<string, Account>()
         this.mergingMapByIdentity = new Map<string, any>()
         this.uniqueForms = []
@@ -130,24 +130,6 @@ export class ContextHelper {
         this.client = new SDKClient(this.config)
 
         this.config!.merging_map ??= []
-        // Build merging map lookup for faster access
-        this.buildMergingMapLookup()
-
-        // Create getScore function with closure to capture the mergingMapByIdentity
-        const mergingMapRef = this.mergingMapByIdentity
-        const configRef = this.config
-        
-        this.config.getScore = (attribute?: string): number => {
-            let score
-            if (configRef.global_merging_score) {
-                score = configRef.merging_score
-            } else {
-                const attributeConfig = mergingMapRef.get(attribute!)
-                score = attributeConfig?.merging_score
-            }
-
-            return score ? score : 0
-        }
 
         this.baseUrl = new URL(this.config.baseurl.replace('.api.', '.')).origin
     }
@@ -176,7 +158,7 @@ export class ContextHelper {
         this.editForms = []
     }
 
-    async init(schema?: AccountSchema, lazy?: boolean) {
+    async init(schema?: AccountSchema, lazy?: boolean, setLock?: boolean) {
         logger.debug(lm(`Looking for connector instance`, this.c))
 
         const id = this.config!.spConnectorInstanceId as string
@@ -186,6 +168,11 @@ export class ContextHelper {
 
         if (!this.source) {
             throw new ConnectorError('No connector source was found on the tenant.')
+        }
+
+        // Set process lock if requested (typically for account aggregation)
+        if (setLock) {
+            await this.setProcessLock()
         }
 
         if (schema) {
@@ -214,10 +201,7 @@ export class ContextHelper {
         this.identitiesById = new Map()
         this.accounts = []
         this.authoritativeAccounts = []
-        this.accountSourceMap = new Map<string, Account[]>()
-        this.authoritativeAccountsById = new Map<string, Account[]>()
         this.accountsByIdentityId = new Map<string, Account>()
-        this.mergingMapByIdentity = new Map<string, any>()
         // this.currentIdentities = []
         this.uniqueForms = []
         this.uniqueFormInstances = []
@@ -227,17 +211,35 @@ export class ContextHelper {
         this.correlationCounter = 0
         this.initiated = 'lazy'
 
+        // Build merging map lookup for faster access
+        this.buildMergingMapLookup()
+
+        // Create getScore function with closure to capture the mergingMapByIdentity
+        const mergingMapRef = this.mergingMapByIdentity
+        const configRef = this.config
+
+        this.config.getScore = (attribute?: string): number => {
+            let score
+            if (configRef.global_merging_score) {
+                score = configRef.merging_score
+            } else {
+                const attributeConfig = mergingMapRef.get(attribute!)
+                score = attributeConfig?.merging_score
+            }
+
+            return score ? score : 0
+        }
+
         if (!lazy) {
+            await this.checkSelectedSourcesAggregation()
             this.mergingEnabled = this.config.merging_isEnabled
             const promises = []
             promises.push(this.fetchIdentities())
             promises.push(this.fetchAccounts())
-            promises.push(this.fetchAuthoritativeAccounts())
+            //promises.push(this.fetchAuthoritativeAccounts())
             promises.push(this.loadForms())
             promises.push(this.loadReviewersMap())
             await Promise.all(promises)
-
-            // this.currentIdentities = this.identities.filter((x) => identityIDs.includes(x.id))
 
             this.initiated = 'full'
         }
@@ -252,6 +254,74 @@ export class ContextHelper {
             return this.source
         } else {
             throw new ConnectorError('No connector source was found on the tenant.')
+        }
+    }
+
+    getClient(): SDKClient {
+        return this.client
+    }
+
+    async setProcessLock(): Promise<void> {
+        if (!this.source) {
+            throw new ConnectorError('Source must be initialized before setting process lock')
+        }
+
+        if (this.config.resetProcessingFlag) {
+            logger.info('Resetting processing flag as per configuration.')
+            return
+        }
+
+        const sourceId = this.source.id!
+        const source = await this.client.getSource(sourceId)
+
+        const processing = (source.connectorAttributes as any)?.processing
+        if (processing === 'true' || processing === true) {
+            throw new ConnectorError(
+                'Cannot aggregate accounts, another connector instance is running or the previous connector crashed. Check to ensure the connector is not in process and try again',
+                ConnectorErrorType.Generic
+            )
+        }
+
+        logger.info('Setting processing lock to true.')
+        if (processing === undefined) {
+            logger.info('Processing attribute not found, initializing it to true.')
+            await this.client.patchSource(sourceId, [
+                {
+                    op: 'add',
+                    path: '/connectorAttributes/processing',
+                    value: 'true',
+                },
+            ])
+        } else {
+            await this.client.patchSource(sourceId, [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/processing',
+                    value: 'true',
+                },
+            ])
+        }
+    }
+
+    async releaseProcessLock(): Promise<void> {
+        try {
+            if (!this.source) {
+                logger.warn('Cannot release processing lock: source not initialized')
+                return
+            }
+
+            logger.info('Releasing processing lock.')
+            const sourceId = this.source.id!
+            await this.client.patchSource(sourceId, [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/processing',
+                    value: 'false',
+                },
+            ])
+        } catch (error) {
+            logger.error('Failed to release processing lock:', error)
+            // Don't throw here as this is typically called in cleanup
         }
     }
 
@@ -340,6 +410,8 @@ export class ContextHelper {
 
     private async fetchAccounts(): Promise<void> {
         const c = 'fetchAccounts'
+
+        await this.fetchAuthoritativeAccounts()
 
         logger.info(lm('Fetching existing accounts.', c))
 
@@ -433,15 +505,16 @@ export class ContextHelper {
 
         // Group authoritative accounts by ID for O(1) lookup
         for (const account of this.authoritativeAccounts) {
-            if (!account.id) continue
-
-            const existingAccounts = this.authoritativeAccountsById.get(account.id) || []
-            existingAccounts.push(account)
-            this.authoritativeAccountsById.set(account.id, existingAccounts)
+            if (account.id) {
+                this.authoritativeAccountsById.set(account.id, account)
+            }
         }
 
         logger.debug(
-            lm(`Built authoritative accounts lookup map with ${this.authoritativeAccountsById.size} entries.`, 'buildAuthoritativeAccountsLookup')
+            lm(
+                `Built authoritative accounts lookup map with ${this.authoritativeAccountsById.size} entries.`,
+                'buildAuthoritativeAccountsLookup'
+            )
         )
     }
 
@@ -451,18 +524,13 @@ export class ContextHelper {
 
         // For each account ID, group accounts by source
         for (const account of this.accounts) {
-            if (!account.attributes?.accounts) continue
-
-            for (const accountId of account.attributes.accounts) {
+            for (const accountId of account.attributes?.accounts ?? []) {
                 // Use O(1) lookup instead of O(n) filter operation
-                const candidateAccounts = this.authoritativeAccountsById.get(accountId)
-                if (candidateAccounts) {
-                    // Filter only by source name since ID already matches
-                    const sourceAccounts = candidateAccounts.filter((x) => this.config.sources.includes(x.sourceName))
-                    
-                    if (sourceAccounts.length > 0) {
-                        this.accountSourceMap.set(accountId, sourceAccounts)
-                    }
+                const sourceAccount = this.authoritativeAccountsById.get(accountId)
+                const sourceAccounts = this.accountSourceMap.get(account.id!) ?? []
+                if (sourceAccount) {
+                    sourceAccounts.push(sourceAccount)
+                    this.accountSourceMap.set(account.id!, sourceAccounts)
                 }
             }
         }
@@ -498,7 +566,10 @@ export class ContextHelper {
         }
 
         logger.debug(
-            lm(`Built accounts by identity ID lookup with ${this.accountsByIdentityId.size} entries.`, 'buildAccountsByIdentityIdLookup')
+            lm(
+                `Built accounts by identity ID lookup with ${this.accountsByIdentityId.size} entries.`,
+                'buildAccountsByIdentityIdLookup'
+            )
         )
     }
 
@@ -547,7 +618,7 @@ export class ContextHelper {
 
         // Run correlations
         logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
-        await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS);
+        await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
 
         // Reset counter for next batch
         this.correlationCounter = 0
@@ -557,14 +628,14 @@ export class ContextHelper {
         return uniqueAccounts
     }
 
-    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {       
+    private async processAccountsWithConcurrency(accounts: Account[], concurrency: number): Promise<UniqueAccount[]> {
         const results = await batch(
             accounts,
             (account) => this.refreshUniqueAccount(account),
             concurrency,
             (processed: number, total: number) => logger.debug(`Processed ${processed} of ${total} accounts`)
-        );
-        
+        )
+
         return results
     }
 
@@ -603,23 +674,31 @@ export class ContextHelper {
     private async listSourceAccounts(account: Account): Promise<Account[]> {
         let sourceAccounts: Account[] = []
 
-        if (account.uncorrelated) {
-            sourceAccounts.push(account)
-        } else {
-            if (this.initiated === 'full') {
-                // Use the account source map for faster lookups
-                if (account.attributes?.accounts) {
-                    for (const accountId of account.attributes.accounts) {
-                        const mappedAccounts = this.accountSourceMap.get(accountId)
-                        if (mappedAccounts) {
-                            sourceAccounts = sourceAccounts.concat(mappedAccounts)
-                        }
+        if (this.initiated === 'full') {
+            sourceAccounts = this.accountSourceMap.get(account.id!) ?? []
+            const initialAccountIds = sourceAccounts.map((x) => x.id!)
+            for (const sourceAccountId of account.attributes!.accounts) {
+                if (!initialAccountIds.includes(sourceAccountId)) {
+                    const sourceAccount = this.authoritativeAccountsById.get(sourceAccountId)
+                    if (sourceAccount) {
+                        sourceAccounts.push(sourceAccount)
                     }
                 }
-            } else {
-                const accounts = await this.client.getAccountsByIdentity(account.identityId!)
-                sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.sourceName!))
             }
+        } else {
+            // create a list of only the source accoutns that tie back to this account
+            const currentAccounts = await this.client.getAccountsByIdentity(account.identityId!)
+            const currentAccountIds = currentAccounts.map((x) => x.id!)
+            for (const sourceAccount of account.attributes!.accounts) {
+                if (!currentAccountIds.includes(sourceAccount)) {
+                    const accountNative = await this.client.getAccount(sourceAccount)
+                    if (accountNative) {
+                        currentAccounts.push(accountNative)
+                    }
+                }
+            }
+
+            sourceAccounts = currentAccounts.filter((x) => this.config.sources.includes(x.sourceName!))
         }
 
         return sourceAccounts
@@ -642,79 +721,71 @@ export class ContextHelper {
         }
     }
 
+    getValidAccountIds(initialAccountIds: string[]): string[] {
+        if (this.initiated === 'full') {
+            return initialAccountIds.filter((x) => this.authoritativeAccountsById.has(x))
+        } else {
+            return []
+        }
+    }
+
     async refreshUniqueAccount(account: Account): Promise<UniqueAccount> {
         const c = 'refreshUniqueAccount'
 
-        const sourceAccounts = await this.listSourceAccounts(account)
-
         let needsRefresh = false
+        let accountsChanged = false
 
-        logger.debug(lm(`Existing account. Enforcing defined correlation.`, c, 1))
-        const identity = await this.getAccountIdentity(account)
-
-        let accountIds: string[] = []
-        if (identity) {
-            // Check the account ids to see if it has changed from prior aggregation to now. If so, refresh account
-            const accounts = identity.accounts!
-            const sourceAccounts = accounts.filter((x) => this.config.sources.includes(x.source!.name!))
-            accountIds = sourceAccounts.map((x) => x.id!)
-            const maxIds = Math.max(accountIds.length, account.attributes!.accounts.length)
-            const diffIds = new Set(accountIds.concat(account.attributes!.accounts ?? []))
-
-            if (maxIds < diffIds.size) {
+        const sourceAccounts = await this.listSourceAccounts(account)
+        const currentAccountIds = new Set(account.attributes!.accounts as string[])
+        const newAccountIds: string[] = []
+        for (const sourceAccount of sourceAccounts) {
+            if (!currentAccountIds.has(sourceAccount.id!)) {
+                logger.debug(lm(`Source accounts have changed. Refreshing account.`, c, 1))
+                accountsChanged = true
                 needsRefresh = true
+            }
+            newAccountIds.push(sourceAccount.id!)
+            currentAccountIds.delete(sourceAccount.id!)
+        }
+
+        const identity = await this.getAccountIdentity(account)
+        if (identity) {
+            // Correlate uncorrelated accounts
+            const correlatedAccounts = identity.accounts ?? []
+            const correlatedAccountIds = correlatedAccounts.map((x) => x.id!)
+            for (const newAccountId of newAccountIds) {
+                if (!correlatedAccountIds.includes(newAccountId)) {
+                    this.accountsToCorrelate.push({ identity: identity.id, account: newAccountId })
+                    accountsChanged = true
+                }
+            }
+
+            if (accountsChanged) {
                 const isEdited = account.attributes!.statuses.includes('edited')
                 if (isEdited) {
                     deleteArrayItem(account.attributes!.statuses, 'edited')
                     const message = datedMessage(`Automatically unedited by change in contributing accounts`)
                     account.attributes!.history.push(message)
                 }
+                logger.debug(lm(`Accounts have changed. Refreshing account.`, c, 1))
+                needsRefresh = true
             }
-        } else {
-            needsRefresh = false
         }
 
-        // The following loop checks each account in the accounts list to see if it needs correlation
-        // Correlation happens when:
-        // 1. The account ID exists in the fusion account's attributes.accounts list
-        // 2. But it is NOT in the identity's accounts list (accountIds)
-        // 3. AND the account is marked as uncorrelated
-        if (!account.uncorrelated) {
-            for (const acc of account.attributes!.accounts as string[]) {
-                try {
-                    if (!accountIds.includes(acc)) {
-                        // This account ID is in the fusion account but not in the identity's accounts list
-                        const sourceAccount = await this.getSourceAccount(acc)
-                        if (sourceAccount && sourceAccount.uncorrelated) {
-                            // This is the slow operation - correlating an uncorrelated account with an identity
-                            this.accountsToCorrelate.push({identity: account.identityId!, account: acc})
-                            sourceAccounts.push(sourceAccount)
-                            accountIds.push(acc)
+        account.attributes!.accounts = newAccountIds
+        if (newAccountIds.length > 0 && !account.attributes!.statuses.includes('edited')) {
+            for (const currentAccount of sourceAccounts) {
+                if (!needsRefresh) {
+                    // This is affected by a double refresh due to the change produced by the manual correlation
+                    if (account.modified && currentAccount.modified) {
+                        const accountModified = new Date(account.modified).getTime()
+                        const sourceAccountModified = new Date(currentAccount.modified).getTime()
+                        if (accountModified < sourceAccountModified) {
+                            logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
+                            needsRefresh = true
                         }
                     }
-                } catch (error) {
-                    logger.error(lm(`Failed to correlate ${acc} account with ${account.identity?.name}.`, c, 1))
-                    logger.error(error)
                 }
-            }
-            account.attributes!.accounts = accountIds
-        }
-
-        if (account.attributes!.accounts.length === 0) {
-            needsRefresh = false
-        } else if (
-            !needsRefresh ||
-            !account.attributes!.statuses.some((x: string) => ['edited', 'orphan'].includes(x))
-        ) {
-            const lastConfigChange = new Date(this.source!.modified!).getTime()
-
-            if (this.fusionAggregationTime < lastConfigChange) {
-                needsRefresh = true
-            } else {
-                const newSourceData = sourceAccounts.find(
-                    (x) => new Date(x.modified!).getTime() > this.fusionAggregationTime
-                )
-                needsRefresh = newSourceData ? true : false
             }
         }
 
@@ -738,7 +809,8 @@ export class ContextHelper {
         if (accounts.length > 0) {
             const attributes: { [key: string]: any } = {}
             let sourceAccounts: Account[] = []
-            for (const source of this.config.sources) {
+            const sources = [...this.config.sources, this.source!.name]
+            for (const source of sources) {
                 sourceAccounts = sourceAccounts.concat(accounts.filter((x) => x.sourceName === source))
             }
 
@@ -939,6 +1011,8 @@ export class ContextHelper {
             account.attributes!.reviews ??= []
             account.modified = new Date(0).toISOString()
             const uniqueAccount = await this.refreshUniqueAccount(account)
+
+            await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
             return uniqueAccount
         } else {
             throw new ConnectorError('Account not found', ConnectorErrorType.NotFound)
@@ -1021,13 +1095,23 @@ export class ContextHelper {
         this.uniqueForms = forms.filter((x) => x.name?.startsWith(this.getUniqueFormName()))
         this.editForms = forms.filter((x) => x.name?.startsWith(this.getEditFormName()))
 
-        let formInstances = await this.client.listFormInstances()
+        // Fetch form instances for each unique form
+        const uniqueFormInstancesPromises = this.uniqueForms.map((form) =>
+            form.id ? this.client.listFormInstances(form.id) : Promise.resolve([])
+        )
+        const uniqueFormInstancesArrays = await Promise.all(uniqueFormInstancesPromises)
+        this.uniqueFormInstances = uniqueFormInstancesArrays
+            .flat()
+            .sort((a, b) => new Date(a.modified!).valueOf() - new Date(b.modified!).valueOf())
 
-        formInstances = formInstances.sort((a, b) => new Date(a.modified!).valueOf() - new Date(b.modified!).valueOf())
-        const uniqueFormIDs = this.uniqueForms.map((x) => x.id)
-        this.uniqueFormInstances = formInstances.filter((x) => uniqueFormIDs.includes(x.formDefinitionId))
-        const editFormIDs = this.editForms.map((x) => x.id)
-        this.editFormInstances = formInstances.filter((x) => editFormIDs.includes(x.formDefinitionId))
+        // Fetch form instances for each edit form
+        const editFormInstancesPromises = this.editForms.map((form) =>
+            form.id ? this.client.listFormInstances(form.id) : Promise.resolve([])
+        )
+        const editFormInstancesArrays = await Promise.all(editFormInstancesPromises)
+        this.editFormInstances = editFormInstancesArrays
+            .flat()
+            .sort((a, b) => new Date(a.modified!).valueOf() - new Date(b.modified!).valueOf())
     }
 
     listUniqueForms(): FormDefinitionResponseBeta[] {
@@ -1045,9 +1129,8 @@ export class ContextHelper {
         const nonExistentForms = Array.from(forms.values()).filter((x) => !uniqueFormNames.includes(x.name))
         const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
 
-        logger.info(lm(`Creating ${nonExistentForms.length} new forms in batches`))
-        
-        const formsCreated = await this.client.batchCreateForms(nonExistentForms);
+        const formsCreated = await this.client.batchCreateForms(nonExistentForms)
+        this.uniqueForms.push(...formsCreated)
         return [...formsCreated, ...existingForms]
     }
 
