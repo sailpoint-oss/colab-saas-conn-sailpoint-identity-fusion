@@ -393,6 +393,7 @@ export const connector = async () => {
 
         const ctx = new ContextHelper(config)
 
+        const nativeIdentity = input.attributes.uniqueID ?? input.identity
         const actions: string[] = [].concat(input.attributes.actions)
         let uniqueAccount: Account | undefined
         let originAccount: Account | undefined
@@ -413,9 +414,9 @@ export const connector = async () => {
 
                 default:
                     if (!uniqueAccount) {
-                        logger.info(`Creating ${input.attributes.uniqueID} account.`)
+                        logger.info(`Creating ${nativeIdentity} account.`)
                         await ctx.init(input.schema, true)
-                        uniqueAccount = await ctx.createUniqueAccount(input.attributes.uniqueID, 'requested')
+                        uniqueAccount = await ctx.createUniqueAccount(nativeIdentity, 'requested')
                     }
 
                     if (action !== 'fusion') {
