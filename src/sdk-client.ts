@@ -1,8 +1,6 @@
 import axios from 'axios'
 import axiosRetry from 'axios-retry'
-import {
-    logger,
-} from '@sailpoint/connector-sdk'
+import { logger } from '@sailpoint/connector-sdk'
 import {
     Configuration,
     CreateFormDefinitionRequestBeta,
@@ -13,7 +11,7 @@ import {
     FormInstanceCreatedByBeta,
     FormInstanceRecipientBeta,
     FormInstanceResponseBeta,
-    FormInstanceResponseBetaStateEnum,
+    FormInstanceResponseBetaStateBeta,
     Paginator,
     Search,
     SearchApi,
@@ -115,29 +113,32 @@ async function asyncBatchPaginate<T, P = any>(
                     return await fetchFunction(params)
                 } catch (error: any) {
                     // Check if it's a 429 error or other retryable error
-                    if ((error.response?.status === 429 || axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)) 
-                        && retryCount < RETRIES) {
-                        
+                    if (
+                        (error.response?.status === 429 ||
+                            axiosRetry.isNetworkError(error) ||
+                            axiosRetry.isRetryableError(error)) &&
+                        retryCount < RETRIES
+                    ) {
                         let waitTime = 1000 * Math.pow(2, retryCount) // Exponential backoff
-                        
+
                         // If it's a 429, use the retry-after header if available
                         if (error.response?.status === 429 && error.response.headers['retry-after']) {
                             waitTime = parseInt(error.response.headers['retry-after']) * 1000
                         }
-                        
+
                         logger.info(`Retry ${retryCount + 1}/${RETRIES} for batch request after waiting ${waitTime}ms`)
-                        
+
                         // Wait and then retry
-                        await new Promise(resolve => setTimeout(resolve, waitTime))
+                        await new Promise((resolve) => setTimeout(resolve, waitTime))
                         return executeWithRetry(params, retryCount + 1)
                     }
-                    
+
                     // If we've exhausted retries or it's not a retryable error, rethrow
                     logger.error(`Request failed after ${retryCount} retries: ${error.message}`)
                     throw error
                 }
             }
-            
+
             // Use our retry-enabled function
             const batchPromise = executeWithRetry(batchParams)
             batchPromises.push(batchPromise)
@@ -146,16 +147,18 @@ async function asyncBatchPaginate<T, P = any>(
         // Wait for all parallel requests to complete, handling any failures
         const batchResults = await Promise.allSettled(batchPromises)
         const batchResponses = batchResults
-            .filter(result => result.status === 'fulfilled')
-            .map(result => (result as PromiseFulfilledResult<{ data: T[] }>).value)
-        
+            .filter((result) => result.status === 'fulfilled')
+            .map((result) => (result as PromiseFulfilledResult<{ data: T[] }>).value)
+
         // Log failed requests
-        const failedCount = batchResults.filter(result => result.status === 'rejected').length
+        const failedCount = batchResults.filter((result) => result.status === 'rejected').length
         if (failedCount > 0) {
             logger.warn(`${failedCount} batch requests failed after retries`)
         }
-        
-        logger.info(`Fetched ${batchResponses.length} batches with items total: ${allItems.length + batchResponses.reduce((sum, r) => sum + (r.data?.length || 0), 0)}`) 
+
+        logger.info(
+            `Fetched ${batchResponses.length} batches with items total: ${allItems.length + batchResponses.reduce((sum, r) => sum + (r.data?.length || 0), 0)}`
+        )
         // Process all responses
         hasMoreData = false
 
@@ -431,6 +434,14 @@ export class SDKClient {
         return response.data
     }
 
+    async patchSource(id: string, jsonPatch: JsonPatchOperation[]) {
+        const api = new SourcesApi(this.config)
+
+        const response = await api.updateSource({ id, jsonPatchOperation: jsonPatch })
+
+        return response.data
+    }
+
     async listSourceSchemas(sourceId: string) {
         const api = new SourcesApi(this.config)
 
@@ -453,10 +464,14 @@ export class SDKClient {
         const response = await api.deleteFormDefinition({ formDefinitionID })
     }
 
-    async listFormInstances(): Promise<FormInstanceResponseBeta[]> {
+    async listFormInstances(formDefinitionId?: string): Promise<FormInstanceResponseBeta[]> {
         const api = new CustomFormsBetaApi(this.config)
 
-        const response = await api.searchFormInstancesByTenant()
+        const axiosOptions = formDefinitionId
+            ? { params: { filters: `formDefinitionId eq "${formDefinitionId}"` } }
+            : undefined
+
+        const response = await api.searchFormInstancesByTenant(axiosOptions)
 
         return response.data ? (response.data as FormInstanceResponseBeta[]) : []
     }
@@ -477,25 +492,37 @@ export class SDKClient {
         return response.data
     }
 
-    async batchCorrelateAccounts(correlationConfigs: {identity: string, account: string}[], concurrency: number = 10) {
+    async batchCorrelateAccounts(
+        correlationConfigs: { identity: string; account: string }[],
+        concurrency: number = 10
+    ) {
         const agent = new Agent({ keepAlive: true, maxSockets: concurrency })
 
         const correlations = await batchRetry(
             correlationConfigs,
-            ({identity, account}: {identity: string, account: string}) => this.correlateAccount(identity, account, agent),
+            ({ identity, account }: { identity: string; account: string }) =>
+                this.correlateAccount(identity, account, agent),
             concurrency,
             20,
-            (processed: number, total: number, duration: number) => logger.info(`Processed ${processed} of ${total} account correlations. Total batch duration: ${duration.toFixed(0)}ms.`),
-            (attempt: number, maxRetries: number, wait: number) => logger.info(`Retry ${attempt}/${maxRetries} for batch request after waiting ${wait}ms`),
+            (processed: number, total: number, duration: number) =>
+                logger.info(
+                    `Processed ${processed} of ${total} account correlations. Total batch duration: ${duration.toFixed(0)}ms.`
+                ),
+            (attempt: number, maxRetries: number, wait: number) =>
+                logger.info(`Retry ${attempt}/${maxRetries} for batch request after waiting ${wait}ms`),
             true
         )
         return correlations
     }
 
     async correlateAccount(identityId: string, id: string, agent?: Agent): Promise<object> {
-        const api = new AccountsApi(this.config, undefined, axios.create({
-            httpsAgent: agent
-        }))
+        const api = new AccountsApi(
+            this.config,
+            undefined,
+            axios.create({
+                httpsAgent: agent,
+            })
+        )
         const requestBody: JsonPatchOperation[] = [
             {
                 op: 'replace',
@@ -515,10 +542,7 @@ export class SDKClient {
     }
 
     async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[]): Promise<FormDefinitionResponseBeta[]> {
-        const forms = await batchRetry(
-            uniqueForms,
-            (form: CreateFormDefinitionRequestBeta) => this.createForm(form)
-        )
+        const forms = await batchRetry(uniqueForms, (form: CreateFormDefinitionRequestBeta) => this.createForm(form))
         return forms
     }
 
@@ -555,14 +579,13 @@ export class SDKClient {
             standAloneForm: true,
         }
 
-        const response = await api.createFormInstance(body)
-
+        const response = await api.createFormInstance({ body })
         return response.data
     }
 
     async setFormInstanceState(
         formInstanceId: string,
-        state: FormInstanceResponseBetaStateEnum
+        state: FormInstanceResponseBetaStateBeta
     ): Promise<FormInstanceResponseBeta> {
         const api = CustomFormsBetaApiFactory(this.config)
 
@@ -573,7 +596,7 @@ export class SDKClient {
                 value: state,
             },
         ]
-        const response = await api.patchFormInstance(formInstanceId, body)
+        const response = await api.patchFormInstance({ formInstanceID: formInstanceId, body })
 
         return response.data
     }
@@ -677,7 +700,7 @@ export class SDKClient {
     async aggregateAccounts(id: string): Promise<void> {
         const sourceApi = new SourcesBetaApi(this.config)
 
-        const response = await sourceApi.importAccounts({ id })
+        const response = await sourceApi.importAccounts({ sourceId: id })
         const taskApi = new TaskManagementBetaApi(this.config)
 
         let count = TASKRESULTRETRIES

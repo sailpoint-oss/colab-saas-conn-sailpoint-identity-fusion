@@ -3,7 +3,7 @@ import {
     CreateFormDefinitionRequestBeta,
     FormConditionBeta,
     FormDefinitionInputBeta,
-    FormDefinitionInputBetaTypeEnum,
+    FormDefinitionInputBetaTypeBeta,
     FormElementBeta,
     FormOwnerBeta,
     IdentityDocument,
@@ -34,7 +34,7 @@ const buildFormDefinitionInput = (name: string, description?: any): FormDefiniti
     }
     const input: FormDefinitionInputBeta = {
         id: name,
-        type: FormDefinitionInputBetaTypeEnum.String,
+        type: FormDefinitionInputBetaTypeBeta.String,
         label: name,
         description: desc,
     }

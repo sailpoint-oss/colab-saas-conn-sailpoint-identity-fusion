@@ -70,20 +70,28 @@ export const connector = async () => {
         }, PROCESSINGWAIT)
 
         const ctx = new ContextHelper(config)
+        let processingLockSet = false
         try {
             opLog(config, input)
-            //Resetting accounts
-            if (config.reset) return
 
             //Compiling info
             logger.info('Loading data.')
-            await ctx.init(input.schema)
             // console.timeLog('stdAccountList', 'init')
-            await ctx.checkSelectedSourcesAggregation()
+            // The init method will check and set the processing lock
+            await ctx.init(input.schema, false, true)
+            processingLockSet = true
+
+            //Resetting accounts
+            if (config.reset) return
             const processedAccountIDs = ctx.listProcessedAccountIDs()
             let pendingAccounts = ctx
                 .listAuthoritativeAccounts()
                 .filter((x) => !processedAccountIDs.includes(x.id!) && x.uncorrelated === true)
+
+            if (config.batchProcessing && config.batchSize!) {
+                logger.info(`Processing ${config.batchSize!} accounts at a time.`)
+                pendingAccounts = pendingAccounts.slice(0, config.batchSize!)
+            }
 
             if (ctx.isMergingEnabled() && !ctx.isFirstRun()) {
                 //PROCESS FORM INSTANCES
@@ -209,18 +217,24 @@ export const connector = async () => {
             logger.info(`Processing ${pendingAccounts.length} uncorrelated accounts.`)
             const reviewerIDs = ctx.listAllReviewerIDs()
             // Batch the uncorrelated account processing
-            const uniqueForms = new Map<string, UniqueForm>();
-            await batch(pendingAccounts, async (uncorrelatedAccount) => {
-                try {
-                    const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
-                    if (uniqueForm && reviewerIDs.length > 0) {
-                        logger.debug(`Creating merging form`)
-                        uniqueForms.set(uniqueForm.name, uniqueForm);
+            const uniqueForms = new Map<string, UniqueForm>()
+            await batch(
+                pendingAccounts,
+                async (uncorrelatedAccount) => {
+                    try {
+                        const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
+                        if (uniqueForm && reviewerIDs.length > 0) {
+                            logger.debug(`Creating merging form`)
+                            uniqueForms.set(uniqueForm.name, uniqueForm)
+                        }
+                    } catch (e) {
+                        ctx.handleError(e)
                     }
-                } catch (e) {
-                    ctx.handleError(e)
-                }
-            }, CONCURRENCY.UNCORRELATED_ACCOUNTS, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`));
+                },
+                CONCURRENCY.UNCORRELATED_ACCOUNTS,
+                (processed: number, total: number) =>
+                    logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`)
+            )
             // Moved out to process Web Requests in parallel.
             await ctx.createUniqueForms(uniqueForms)
 
@@ -329,9 +343,14 @@ export const connector = async () => {
 
             //BUILD RESULTING ACCOUNTS
             logger.info('Sending accounts.')
-            await ctx.listAndSendUniqueAccounts(res);
+            await ctx.listAndSendUniqueAccounts(res)
         } finally {
             clearInterval(interval)
+
+            // Release processing lock if it was set
+            if (processingLockSet) {
+                await ctx.releaseProcessLock()
+            }
         }
 
         ctx.logErrors(context, input)
@@ -374,6 +393,7 @@ export const connector = async () => {
 
         const ctx = new ContextHelper(config)
 
+        const nativeIdentity = input.attributes.uniqueID ?? input.identity
         const actions: string[] = [].concat(input.attributes.actions)
         let uniqueAccount: Account | undefined
         let originAccount: Account | undefined
@@ -394,9 +414,9 @@ export const connector = async () => {
 
                 default:
                     if (!uniqueAccount) {
-                        logger.info(`Creating ${input.attributes.uniqueID} account.`)
+                        logger.info(`Creating ${nativeIdentity} account.`)
                         await ctx.init(input.schema, true)
-                        uniqueAccount = await ctx.createUniqueAccount(input.attributes.uniqueID, 'requested')
+                        uniqueAccount = await ctx.createUniqueAccount(nativeIdentity, 'requested')
                     }
 
                     if (action !== 'fusion') {
