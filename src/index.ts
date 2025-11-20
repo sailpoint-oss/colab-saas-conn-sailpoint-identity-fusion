@@ -217,18 +217,24 @@ export const connector = async () => {
             logger.info(`Processing ${pendingAccounts.length} uncorrelated accounts.`)
             const reviewerIDs = ctx.listAllReviewerIDs()
             // Batch the uncorrelated account processing
-            const uniqueForms = new Map<string, UniqueForm>();
-            await batch(pendingAccounts, async (uncorrelatedAccount) => {
-                try {
-                    const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
-                    if (uniqueForm && reviewerIDs.length > 0) {
-                        logger.debug(`Creating merging form`)
-                        uniqueForms.set(uniqueForm.name, uniqueForm);
+            const uniqueForms = new Map<string, UniqueForm>()
+            await batch(
+                pendingAccounts,
+                async (uncorrelatedAccount) => {
+                    try {
+                        const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
+                        if (uniqueForm && reviewerIDs.length > 0) {
+                            logger.debug(`Creating merging form`)
+                            uniqueForms.set(uniqueForm.name, uniqueForm)
+                        }
+                    } catch (e) {
+                        ctx.handleError(e)
                     }
-                } catch (e) {
-                    ctx.handleError(e)
-                }
-            }, CONCURRENCY.UNCORRELATED_ACCOUNTS, (processed: number, total: number) => logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`));
+                },
+                CONCURRENCY.UNCORRELATED_ACCOUNTS,
+                (processed: number, total: number) =>
+                    logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`)
+            )
             // Moved out to process Web Requests in parallel.
             await ctx.createUniqueForms(uniqueForms)
 
@@ -337,10 +343,10 @@ export const connector = async () => {
 
             //BUILD RESULTING ACCOUNTS
             logger.info('Sending accounts.')
-            await ctx.listAndSendUniqueAccounts(res);
+            await ctx.listAndSendUniqueAccounts(res)
         } finally {
             clearInterval(interval)
-            
+
             // Release processing lock if it was set
             if (processingLockSet) {
                 await ctx.releaseProcessLock()

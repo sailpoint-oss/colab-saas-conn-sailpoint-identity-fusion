@@ -13,10 +13,10 @@ import * as datefns from 'date-fns'
  */
 
 // Cache to store the maximum counter value for each baseId
-const maxCounterCache = new Map<string, number>();
+const maxCounterCache = new Map<string, number>()
 
 // Cache for compiled VLT templates to avoid re-parsing and re-compilation
-const templateCache = new Map<string, any>();
+const templateCache = new Map<string, any>()
 export const buildUniqueID = async (
     account: Account,
     currentIDs: Set<string>,
