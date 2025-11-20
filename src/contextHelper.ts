@@ -35,7 +35,7 @@ import {
     deleteArrayItem,
     stringifyIdentity,
     stringifyScore,
-    trimToNull
+    trimToNull,
 } from './utils'
 import {
     CONCURRENCY,
@@ -916,11 +916,12 @@ export class ContextHelper {
 
         logger.info(lm(`Running analysis on ${pendingAccounts.length} pending accounts`, c, 1))
         const analysis = await batch(
-            pendingAccounts, 
+            pendingAccounts,
             (uncorrelatedAccount) => this.analyzeUncorrelatedAccount(uncorrelatedAccount),
-            CONCURRENCY.REPORT, 
-            (processed: number, total: number) => logger.info(lm(`Processed ${processed} of ${total} uncorrelated accounts...`, c, 1))
-        );
+            CONCURRENCY.REPORT,
+            (processed: number, total: number) =>
+                logger.info(lm(`Processed ${processed} of ${total} uncorrelated accounts...`, c, 1))
+        )
 
         // Cleanup memory
         this.releaseSourceData()
@@ -1220,15 +1221,15 @@ export class ContextHelper {
         const length = Object.keys(accountAttributes).length
 
         // Skip if no match criteria or account has no data
-        if (length == 0 || Object.values(accountAttributes).join("").length == 0) return similarMatches;
+        if (length == 0 || Object.values(accountAttributes).join('').length == 0) return similarMatches
 
         candidates: for (const candidate of this.identitiesById.values()) {
             // const scores: number[] = []
             const scores = new Map<string, number>()
             attributes: for (const attribute of Object.keys(accountAttributes)) {
-                const iValue = ((accountAttributes[attribute] as string) || "").trim()
-                const cValue = ((candidate.attributes![attribute] as string) || "").trim()
-                
+                const iValue = ((accountAttributes[attribute] as string) || '').trim()
+                const cValue = ((candidate.attributes![attribute] as string) || '').trim()
+
                 // Only evaluate when both attributes contain a value.
                 // Skip if only one is NULL
                 if (iValue && cValue) {
@@ -1277,7 +1278,7 @@ export class ContextHelper {
 
         let similarMatches: SimilarAccountMatch[] = []
         similarMatches = this.findSimilarMatches(uncorrelatedAccount)
-        
+
         if (similarMatches.length > 0) {
             logger.debug(lm(`Similar matches found`, c, 1))
             for (const match of similarMatches) {
@@ -1338,7 +1339,7 @@ export class ContextHelper {
                         1
                     )
                     logger.info(msg)
-                    this.accountsToCorrelate.push({identity: identicalMatch.id, account: uncorrelatedAccount.id!})
+                    this.accountsToCorrelate.push({ identity: identicalMatch.id, account: uncorrelatedAccount.id! })
                 }
                 // Check if similar match exists
             } else {

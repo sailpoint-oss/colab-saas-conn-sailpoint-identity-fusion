@@ -547,9 +547,13 @@ export class SDKClient {
     }
 
     async createForm(form: CreateFormDefinitionRequestBeta, agent?: Agent): Promise<FormDefinitionResponseBeta> {
-        const api = new CustomFormsBetaApi(this.config, undefined, axios.create({
-            httpsAgent: agent
-        }))
+        const api = new CustomFormsBetaApi(
+            this.config,
+            undefined,
+            axios.create({
+                httpsAgent: agent,
+            })
+        )
 
         const response = await api.createFormDefinition({
             createFormDefinitionRequestBeta: form,

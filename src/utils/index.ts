@@ -29,10 +29,10 @@ export const pushNewItem = <T>(item: T, list: T[]) => {
 
 export const trimToNull = (str: string): string | null => {
     if (str === null || typeof str === 'undefined') {
-        return null;
+        return null
     }
-    const trimmedStr = String(str).trim();
-    return trimmedStr === '' ? null : trimmedStr;
+    const trimmedStr = String(str).trim()
+    return trimmedStr === '' ? null : trimmedStr
 }
 
 export const envInfo = () => {
