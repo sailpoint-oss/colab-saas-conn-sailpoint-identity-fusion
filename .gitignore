@@ -28,5 +28,4 @@ config.json
 .sentryclirc
 .httpyac.json
 .env
-package-lock.json
 
