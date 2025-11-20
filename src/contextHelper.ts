@@ -1109,6 +1109,7 @@ export class ContextHelper {
         const existingForms = Array.from(forms.values()).filter((x) => uniqueFormNames.includes(x.name))
 
         const formsCreated = await this.client.batchCreateForms(nonExistentForms)
+        this.uniqueForms.push(...formsCreated)
         return [...formsCreated, ...existingForms]
     }
 
