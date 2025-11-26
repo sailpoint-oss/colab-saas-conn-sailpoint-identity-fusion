@@ -604,7 +604,16 @@ export class SDKClient {
     async createWorkflow(workflow: WorkflowsBetaApiCreateWorkflowRequest): Promise<WorkflowBeta> {
         const api = new WorkflowsBetaApi(this.config)
 
-        const response = await api.createWorkflow(workflow)
+        const requestParameters = { ...workflow } as any
+        // Workaround to create a workflow with an external trigger
+        requestParameters.createWorkflowRequestBeta!.trigger = {
+            type: 'EXTERNAL',
+            attributes: {
+                id: 'idn:external:id',
+            },
+        }
+
+        const response = await api.createWorkflow(requestParameters)
 
         return response.data
     }
