@@ -1431,9 +1431,19 @@ export class ContextHelper {
                         values: attributeValues,
                         ignoreErrors: true,
                     },
-                },
+                }
             },
             internal: false,
+        }
+
+        if (this.config.referenceTransformName && this.config.referenceTransformName != "") {
+            transformDef.attributes.value = "#if($processed == 'false')staging#{else}$lifeCycleStatus#end"
+            transformDef.attributes.lifeCycleStatus = {
+                type: "reference",
+                attributes: {
+                    name: this.config.referenceTransformName
+                }
+            }
         }
 
         try {
