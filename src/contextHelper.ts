@@ -59,8 +59,6 @@ import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
 import { batch } from './utils/batch'
-import path from 'path'
-import { get } from 'http'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -414,7 +412,8 @@ export class ContextHelper {
 
         logger.info(lm('Fetching existing accounts.', c))
 
-        const accounts = await this.client.listAccountsBySource(this.source!.id!)
+        // const accounts = await this.client.listAccountsBySource(this.source!.id!)
+        const accounts: any[] = []
 
         for (const account of accounts) {
             if (
@@ -670,7 +669,7 @@ export class ContextHelper {
         }
     }
 
-    private async listSourceAccounts(account: Account): Promise<Account[]> {
+    private async listSourceAccountsByAccount(account: Account): Promise<Account[]> {
         let sourceAccounts: Account[] = []
 
         if (this.initiated === 'full') {
@@ -685,7 +684,7 @@ export class ContextHelper {
                 }
             }
         } else {
-            // create a list of only the source accoutns that tie back to this account
+            // create a list of only the source accounts that tie back to this account
             const currentAccounts = await this.client.getAccountsByIdentity(account.identityId!)
             const currentAccountIds = currentAccounts.map((x) => x.id!)
             for (const sourceAccount of account.attributes!.accounts) {
@@ -734,56 +733,75 @@ export class ContextHelper {
         let needsRefresh = false
         let accountsChanged = false
 
-        const sourceAccounts = await this.listSourceAccounts(account)
-        const currentAccountIds = new Set(account.attributes!.accounts as string[])
-        const newAccountIds: string[] = []
-        for (const sourceAccount of sourceAccounts) {
-            if (!currentAccountIds.has(sourceAccount.id!)) {
-                logger.debug(lm(`Source accounts have changed. Refreshing account.`, c, 1))
-                accountsChanged = true
-                needsRefresh = true
-            }
-            newAccountIds.push(sourceAccount.id!)
-            currentAccountIds.delete(sourceAccount.id!)
-        }
+        const sourceAccounts = await this.listSourceAccountsByAccount(account)
+        const fusionAccountIds = new Set(account.attributes!.accounts as string[])
+        const finalAccountIds: string[] = []
 
         const identity = await this.getAccountIdentity(account)
         if (identity) {
-            // Correlate uncorrelated accounts
             const correlatedAccounts = identity.accounts ?? []
-            const correlatedAccountIds = correlatedAccounts.map((x) => x.id!)
-            for (const newAccountId of newAccountIds) {
-                if (!correlatedAccountIds.includes(newAccountId)) {
-                    this.accountsToCorrelate.push({ identity: identity.id, account: newAccountId })
-                    accountsChanged = true
+            // const correlatedAccounts = await this.listCorrelatedSourceAccountsByAccount(account)
+            //Checking if the Fusion account got any extra source accounts
+            for (const correlatedAccount of correlatedAccounts) {
+                const id = correlatedAccount.id!
+                const newSourceAccount = this.authoritativeAccountsById.get(id)
+                if (newSourceAccount) {
+                    if (!fusionAccountIds.has(id)) {
+                        accountsChanged = true
+                    }
+
+                    finalAccountIds.push(id)
+                    fusionAccountIds.delete(id)
                 }
             }
+        }
 
-            if (accountsChanged) {
-                const isEdited = account.attributes!.statuses.includes('edited')
-                if (isEdited) {
-                    deleteArrayItem(account.attributes!.statuses, 'edited')
-                    const message = datedMessage(`Automatically unedited by change in contributing accounts`)
-                    account.attributes!.history.push(message)
+        // Checking if there's any source account pending for correlation
+        for (const fusionAccountId of fusionAccountIds) {
+            // Still valid
+            const isValid = this.authoritativeAccountsById.get(fusionAccountId)
+            if (isValid) {
+                finalAccountIds.push(fusionAccountId)
+                if (identity) {
+                    // Correlate the account with the identity
+                    this.accountsToCorrelate.push({ identity: identity.id, account: fusionAccountId })
+                    accountsChanged = true
                 }
-                logger.debug(lm(`Accounts have changed. Refreshing account.`, c, 1))
+            } else if (identity) {
+                // Account is not valid anymore and needs refresh
                 needsRefresh = true
             }
         }
 
-        account.attributes!.accounts = newAccountIds
-        if (newAccountIds.length > 0 && !account.attributes!.statuses.includes('edited')) {
-            for (const currentAccount of sourceAccounts) {
-                if (!needsRefresh) {
-                    // This is affected by a double refresh due to the change produced by the manual correlation
-                    if (account.modified && currentAccount.modified) {
+        if (accountsChanged) {
+            const isEdited = account.attributes!.statuses.includes('edited')
+            if (isEdited) {
+                deleteArrayItem(account.attributes!.statuses, 'edited')
+                const message = datedMessage(`Automatically unedited by change in contributing accounts`)
+                account.attributes!.history.push(message)
+            }
+            logger.debug(lm(`Accounts have changed. Refreshing account.`, c, 1))
+            needsRefresh = true
+        }
+
+        account.attributes!.accounts = finalAccountIds
+
+        if (finalAccountIds.length > 0 && !account.attributes!.statuses.includes('edited')) {
+            for (const sourceAccount of sourceAccounts) {
+                if (needsRefresh) break
+
+                if (account.modified) {
+                    if (sourceAccount.modified) {
                         const accountModified = new Date(account.modified).getTime()
-                        const sourceAccountModified = new Date(currentAccount.modified).getTime()
+                        const sourceAccountModified = new Date(sourceAccount.modified).getTime()
                         if (accountModified < sourceAccountModified) {
                             logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
                             needsRefresh = true
                         }
                     }
+                } else {
+                    //New account needs to be refreshed
+                    needsRefresh = true
                 }
             }
         }
