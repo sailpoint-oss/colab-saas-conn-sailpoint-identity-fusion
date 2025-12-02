@@ -59,14 +59,45 @@ jobs:
               run: |
                 sudo dpkg -i sail_${{ env.CLI_VERSION }}_linux_amd64.deb
 
-            - name: Use sailpoint-cli to create new connector
-              run: |
-                sail conn create "${{ env.STACK }}"
-
-            - name: Use sailpoint-cli to upload new connector
+            - name: Validate SailPoint configuration
               run: |
                 set -e
-                sail conn upload -c "${{ env.STACK }}" -f ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip
+                if [ -z "$SAIL_BASE_URL" ]; then
+                  echo "ERROR: SAIL_BASE_URL is not set"
+                  exit 1
+                fi
+                if [ -z "$SAIL_CLIENT_ID" ]; then
+                  echo "ERROR: SAIL_CLIENT_ID is not set"
+                  exit 1
+                fi
+                if [ -z "$SAIL_CLIENT_SECRET" ]; then
+                  echo "ERROR: SAIL_CLIENT_SECRET is not set"
+                  exit 1
+                fi
+                echo "SailPoint configuration validated successfully"
+                echo "Base URL: $SAIL_BASE_URL"
+
+            - name: Use sailpoint-cli to create new connector
+              continue-on-error: false
+              run: |
+                set -e
+                echo "Creating connector: ${{ env.STACK }}"
+                sail conn create "${{ env.STACK }}" || {
+                  echo "ERROR: Failed to create connector ${{ env.STACK }}"
+                  exit 1
+                }
+                echo "Connector created successfully"
+
+            - name: Use sailpoint-cli to upload new connector
+              continue-on-error: false
+              run: |
+                set -e
+                echo "Uploading connector: ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip"
+                sail conn upload -c "${{ env.STACK }}" -f ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip || {
+                  echo "ERROR: Failed to upload connector"
+                  exit 1
+                }
+                echo "Connector uploaded successfully"
 
             # - name: Run integration tests for connector
             #   if: github.event_name == 'pull_request'
