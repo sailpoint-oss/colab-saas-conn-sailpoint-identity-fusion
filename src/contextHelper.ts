@@ -46,7 +46,7 @@ import {
     reservedAttributes,
 } from './constants'
 import { EditForm, UniqueForm } from './model/form'
-import { buildUniqueID } from './utils/unique'
+import { UniqueIdentifierGenerator } from './utils/unique'
 import { ReviewEmail, ErrorEmail, ReportEmail } from './model/email'
 import { AccountAnalysis, SimilarAccountMatch, UniqueAccount } from './model/account'
 import { AxiosError } from 'axios'
@@ -71,7 +71,6 @@ export class ContextHelper {
     private reviewerIDs: Map<string, string[]>
     private source?: Source
     private schema?: AccountSchema
-    private ids: Set<string>
     // private identities: IdentityDocument[]
     private identitiesById: Map<string, IdentityDocument>
     // private currentIdentities: IdentityDocument[]
@@ -103,10 +102,11 @@ export class ContextHelper {
 
     private accountsToCorrelate: { identity: string; account: string }[]
 
+    private uniqueIdGenerator: UniqueIdentifierGenerator
+
     constructor(config: Config) {
         this.config = config
         this.sources = []
-        this.ids = new Set()
         this.uuids = new Set()
         // this.identities = []
         this.identitiesById = new Map<string, IdentityDocument>()
@@ -131,6 +131,7 @@ export class ContextHelper {
         this.config!.merging_map ??= []
 
         this.baseUrl = new URL(this.config.baseurl.replace('.api.', '.')).origin
+        this.uniqueIdGenerator = new UniqueIdentifierGenerator()
     }
 
     releaseIdentityData() {
@@ -375,7 +376,7 @@ export class ContextHelper {
             // make sure attributes exists before adding to map
             if (x.attributes) {
                 this.identitiesById.set(x.id, x)
-                if (this.config.uid_scope === 'platform') this.ids.add(x.attributes!.uid)
+                if (this.config.uid_scope === 'platform') this.uniqueIdGenerator.ids.add(x.attributes!.uid)
             }
         })
     }
@@ -431,7 +432,7 @@ export class ContextHelper {
                 account.attributes!.history ??= []
 
                 if (account.attributes!.uuid) this.uuids.add(account.attributes!.uuid)
-                if (this.config.uid_scope === 'source') this.ids.add(account.attributes!.uniqueID)
+                if (this.config.uid_scope === 'source') this.uniqueIdGenerator.ids.add(account.attributes!.uniqueID)
 
                 this.accounts.push(account)
             }
@@ -932,7 +933,7 @@ export class ContextHelper {
             const identity = this.identitiesById.get(account.identityId!)!
             uniqueID = identity.attributes!.uid
         } else {
-            uniqueID = await buildUniqueID(account, this.ids, this.config, true)
+            uniqueID = await this.uniqueIdGenerator.buildUniqueID(account, this.config, true)
         }
 
         this.setUUID(account)
@@ -951,7 +952,7 @@ export class ContextHelper {
             uniqueAccount.attributes!.history = [message]
         }
 
-        this.ids.add(uniqueAccount.attributes!.uniqueID)
+        this.uniqueIdGenerator.ids.add(uniqueAccount.attributes!.uniqueID)
         this.accounts.push(uniqueAccount)
 
         return uniqueAccount
@@ -1010,7 +1011,7 @@ export class ContextHelper {
             await this.fetchIdentities()
         }
 
-        const uniqueID = await buildUniqueID(account!, this.ids, this.config, false)
+        const uniqueID = await this.uniqueIdGenerator.buildUniqueID(account!, this.config, false)
 
         return uniqueID
     }
