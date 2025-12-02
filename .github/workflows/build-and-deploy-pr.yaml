@@ -82,10 +82,20 @@ jobs:
               run: |
                 set -e
                 echo "Creating connector: ${{ env.STACK }}"
-                sail conn create "${{ env.STACK }}" || {
-                  echo "ERROR: Failed to create connector ${{ env.STACK }}"
+                OUTPUT=$(sail conn create "${{ env.STACK }}" 2>&1)
+                EXIT_CODE=$?
+                echo "$OUTPUT"
+                
+                # Check for errors in output (disable set -e for grep)
+                set +e
+                echo "$OUTPUT" | grep -iq "error:"
+                HAS_ERROR=$?
+                set -e
+                
+                if [ $EXIT_CODE -ne 0 ] || [ $HAS_ERROR -eq 0 ]; then
+                  echo "::error::Failed to create connector ${{ env.STACK }}"
                   exit 1
-                }
+                fi
                 echo "Connector created successfully"
 
             - name: Use sailpoint-cli to upload new connector
@@ -93,10 +103,20 @@ jobs:
               run: |
                 set -e
                 echo "Uploading connector: ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip"
-                sail conn upload -c "${{ env.STACK }}" -f ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip || {
-                  echo "ERROR: Failed to upload connector"
+                OUTPUT=$(sail conn upload -c "${{ env.STACK }}" -f ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip 2>&1)
+                EXIT_CODE=$?
+                echo "$OUTPUT"
+                
+                # Check for errors in output (disable set -e for grep)
+                set +e
+                echo "$OUTPUT" | grep -iq "error:"
+                HAS_ERROR=$?
+                set -e
+                
+                if [ $EXIT_CODE -ne 0 ] || [ $HAS_ERROR -eq 0 ]; then
+                  echo "::error::Failed to upload connector"
                   exit 1
-                }
+                fi
                 echo "Connector uploaded successfully"
 
             # - name: Run integration tests for connector
