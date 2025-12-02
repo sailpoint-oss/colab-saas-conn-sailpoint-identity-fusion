@@ -25,11 +25,7 @@ export class UniqueIdentifierGenerator {
         this.ids = new Set<string>()
     }
 
-    buildUniqueID = async (
-        account: Account,
-        config: Config,
-        buildContext: boolean
-    ): Promise<string> => {
+    buildUniqueID = async (account: Account, config: Config, buildContext: boolean): Promise<string> => {
         const c = 'buildUniqueID'
 
         // Check if we have a cached compiled template
