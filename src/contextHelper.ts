@@ -412,8 +412,7 @@ export class ContextHelper {
 
         logger.info(lm('Fetching existing accounts.', c))
 
-        // const accounts = await this.client.listAccountsBySource(this.source!.id!)
-        const accounts: any[] = []
+        const accounts = await this.client.listAccountsBySource(this.source!.id!)
 
         for (const account of accounts) {
             if (
@@ -464,7 +463,16 @@ export class ContextHelper {
     }
 
     async getAccountByIdentity(identity: IdentityDocument): Promise<Account | undefined> {
-        return await this.client.getAccountByIdentityID(identity.id, identity.attributes!.cloudAuthoritativeSource)
+        const sourceId = identity.attributes!.cloudAuthoritativeSource
+        if (sourceId) {
+            return await this.client.getAccountByIdentityID(identity.id, sourceId)
+        } else {
+            const id = identity.accounts?.[0]?.id
+            if (!id) {
+                return undefined
+            }
+            return await this.client.getAccount(id)
+        }
     }
 
     getFusionAccountByIdentity(identity: IdentityDocument): Account | undefined {
@@ -689,7 +697,7 @@ export class ContextHelper {
             const currentAccountIds = currentAccounts.map((x) => x.id!)
             for (const sourceAccount of account.attributes!.accounts) {
                 if (!currentAccountIds.includes(sourceAccount)) {
-                    const accountNative = await this.client.getAccount(sourceAccount)
+                    const accountNative = await this.getSourceAccount(sourceAccount)
                     if (accountNative) {
                         currentAccounts.push(accountNative)
                     }
@@ -740,11 +748,10 @@ export class ContextHelper {
         const identity = await this.getAccountIdentity(account)
         if (identity) {
             const correlatedAccounts = identity.accounts ?? []
-            // const correlatedAccounts = await this.listCorrelatedSourceAccountsByAccount(account)
             //Checking if the Fusion account got any extra source accounts
             for (const correlatedAccount of correlatedAccounts) {
                 const id = correlatedAccount.id!
-                const newSourceAccount = this.authoritativeAccountsById.get(id)
+                const newSourceAccount = await this.getSourceAccount(id)
                 if (newSourceAccount) {
                     if (!fusionAccountIds.has(id)) {
                         accountsChanged = true
@@ -759,17 +766,13 @@ export class ContextHelper {
         // Checking if there's any source account pending for correlation
         for (const fusionAccountId of fusionAccountIds) {
             // Still valid
-            const isValid = this.authoritativeAccountsById.get(fusionAccountId)
-            if (isValid) {
+            const sourceAccount = await this.getSourceAccount(fusionAccountId)
+            if (sourceAccount) {
                 finalAccountIds.push(fusionAccountId)
                 if (identity) {
                     // Correlate the account with the identity
                     this.accountsToCorrelate.push({ identity: identity.id, account: fusionAccountId })
-                    accountsChanged = true
                 }
-            } else if (identity) {
-                // Account is not valid anymore and needs refresh
-                needsRefresh = true
             }
         }
 
@@ -790,18 +793,13 @@ export class ContextHelper {
             for (const sourceAccount of sourceAccounts) {
                 if (needsRefresh) break
 
-                if (account.modified) {
-                    if (sourceAccount.modified) {
-                        const accountModified = new Date(account.modified).getTime()
-                        const sourceAccountModified = new Date(sourceAccount.modified).getTime()
-                        if (accountModified < sourceAccountModified) {
-                            logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
-                            needsRefresh = true
-                        }
+                if (account.modified && sourceAccount.modified) {
+                    const accountModified = new Date(account.modified).getTime()
+                    const sourceAccountModified = new Date(sourceAccount.modified).getTime()
+                    if (accountModified < sourceAccountModified) {
+                        logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
+                        needsRefresh = true
                     }
-                } else {
-                    //New account needs to be refreshed
-                    needsRefresh = true
                 }
             }
         }
@@ -929,7 +927,11 @@ export class ContextHelper {
         const fusionAccount = (await this.getFusionAccount(id)) as Account
         const identity = (await this.getIdentityById(fusionAccount.identityId!)) as IdentityDocument
         const authoritativeAccounts = await this.listAuthoritativeAccounts()
-        const pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
+        let pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
+        if (this.config.batchProcessing && this.config.batchSize!) {
+            logger.info(`Processing ${this.config.batchSize!} accounts at a time.`)
+            pendingAccounts = pendingAccounts.slice(0, this.config.batchSize!)
+        }
         const analysis = await Promise.all(pendingAccounts.map((x) => this.analyzeUncorrelatedAccount(x)))
 
         const email = new ReportEmail(analysis, this.config.merging_attributes, identity)
@@ -942,7 +944,7 @@ export class ContextHelper {
         logger.debug(lm(`Processing ${account.name} (${account.id})`, c, 1))
         let uniqueID: string
 
-        const uniqueAccount = account
+        const uniqueAccount = normalizeAccountAttributes(account, this.config.merging_map)
 
         uniqueAccount.attributes!.accounts = [account.id]
         if (status === 'requested' || !status) {
@@ -962,7 +964,7 @@ export class ContextHelper {
         uniqueAccount.attributes!.actions = ['fusion']
         uniqueAccount.attributes!.reviews = []
         uniqueAccount.attributes!.history = []
-        uniqueAccount.modified = new Date(0).toISOString()
+        uniqueAccount.modified = account.modified
 
         if (msg) {
             const message = datedMessage(msg, account)
@@ -978,7 +980,7 @@ export class ContextHelper {
     async createUniqueAccount(uniqueID: string, status: string): Promise<Account> {
         const identity = (await this.getIdentityByUID(uniqueID)) as IdentityDocument
         const originAccount = (await this.getAccountByIdentity(identity)) as Account
-        originAccount.attributes = { ...originAccount.attributes, ...identity.attributes }
+        originAccount.attributes = { ...(originAccount.attributes ?? {}), ...identity.attributes }
         const message = 'Created from access request'
         const uniqueAccount = await this.buildUniqueAccount(originAccount, status, message)
 
@@ -1008,7 +1010,6 @@ export class ContextHelper {
             account.attributes!.accounts ??= []
             account.attributes!.actions ??= ['fusion']
             account.attributes!.reviews ??= []
-            account.modified = new Date(0).toISOString()
             const uniqueAccount = await this.refreshUniqueAccount(account)
 
             await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
@@ -1333,6 +1334,7 @@ export class ContextHelper {
                         1
                     )
                     logger.info(msg)
+                    // TODO: move to batch
                     await this.correlateAccount(identicalMatch.id, uncorrelatedAccount.id!)
                 }
                 // Check if similar match exists
