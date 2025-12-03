@@ -38,6 +38,7 @@
         "@types/node": "^20.11.17",
         "@types/uuid": "^9.0.8",
         "@vercel/ncc": "^0.38.1",
+        "airtable": "^0.12.2",
         "cross-env": "7.0.3",
         "dotenv": "^16.4.7",
         "eslint": "^9.9.0",
