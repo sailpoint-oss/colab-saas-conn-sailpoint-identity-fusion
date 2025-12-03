@@ -51,13 +51,37 @@ jobs:
                   else
                     echo "STACK=${{ env.CONNECTOR_NAME }}-staging" >> $GITHUB_ENV
                   fi
-            - name: Download sailpoint-cli package
+            - name: Download and install sailpoint-cli
               run: |
+                set -e
+                echo "Downloading SailPoint CLI version ${{ env.CLI_VERSION }}..."
                 wget https://github.com/sailpoint-oss/sailpoint-cli/releases/download/${{ env.CLI_VERSION }}/sail_${{ env.CLI_VERSION }}_linux_amd64.deb
-
-            - name: Install sailpoint-cli
-              run: |
+                
+                echo "Installing SailPoint CLI..."
                 sudo dpkg -i sail_${{ env.CLI_VERSION }}_linux_amd64.deb
+                
+                echo "Verifying installation and locating binary..."
+                SAIL_PATH=$(which sail 2>/dev/null || find /usr -name sail -type f 2>/dev/null | head -1)
+                
+                if [ -z "$SAIL_PATH" ]; then
+                  echo "ERROR: sail binary not found after installation"
+                  echo "Package contents:"
+                  dpkg -L sail 2>/dev/null || echo "Package 'sail' not listed"
+                  exit 1
+                fi
+                
+                echo "Found sail at: $SAIL_PATH"
+                
+                # Ensure binary is executable
+                sudo chmod +x "$SAIL_PATH"
+                
+                # Add to GitHub Actions PATH for subsequent steps
+                SAIL_DIR=$(dirname "$SAIL_PATH")
+                echo "$SAIL_DIR" >> $GITHUB_PATH
+                
+                # Verify it works
+                "$SAIL_PATH" --version
+                echo "SailPoint CLI v${{ env.CLI_VERSION }} installed successfully"
 
             - name: Validate SailPoint configuration
               run: |
