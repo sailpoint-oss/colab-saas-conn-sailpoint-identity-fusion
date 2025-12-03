@@ -964,7 +964,7 @@ export class ContextHelper {
         uniqueAccount.attributes!.actions = ['fusion']
         uniqueAccount.attributes!.reviews = []
         uniqueAccount.attributes!.history = []
-        uniqueAccount.modified = account.modified
+        uniqueAccount.modified = new Date(0).toISOString()
 
         if (msg) {
             const message = datedMessage(msg, account)
