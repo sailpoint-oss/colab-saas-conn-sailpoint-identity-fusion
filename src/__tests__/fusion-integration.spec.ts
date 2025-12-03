@@ -2,7 +2,6 @@ import axios from 'axios'
 import env from 'dotenv'
 import { Configuration } from './test-config'
 import { fail } from 'assert'
-// @ts-expect-error - airtable types not available
 import Airtable from 'airtable/lib/airtable'
 import { StdAccountCreateInput } from '@sailpoint/connector-sdk'
 import { AirtableAccount } from '../../airtableTemp/models/AirtableAccount'
