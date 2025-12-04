@@ -45,10 +45,11 @@ import {
     SourcesBetaApi,
     TaskManagementBetaApi,
     TransformRead,
+    AccountsApiUpdateAccountRequest,
 } from 'sailpoint-api-client'
 import { URL } from 'url'
 import { RETRIES, TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
-import { retriesConfig, throttleConfig } from './axios'
+import { retriesConfig } from './axios'
 import { batchRetry } from './utils/batch'
 import { Agent } from 'https'
 
@@ -193,7 +194,6 @@ export class SDKClient {
         const tokenUrl = new URL(config.baseurl).origin + TOKEN_URL_PATH
         this.config = new Configuration({ ...config, tokenUrl, retriesConfig })
         axiosRetry(axios as any, retriesConfig)
-        //axiosThrottle.use(axios as any, throttleConfig)
     }
 
     async listIdentities(attributes: string[]): Promise<IdentityDocument[]> {
@@ -516,29 +516,32 @@ export class SDKClient {
     }
 
     async correlateAccount(identityId: string, id: string, agent?: Agent): Promise<object> {
-        const api = new AccountsApi(
-            this.config,
-            undefined,
-            axios.create({
-                httpsAgent: agent,
-            })
-        )
-        const requestBody: JsonPatchOperation[] = [
-            {
-                op: 'replace',
-                path: '/identityId',
-                value: identityId,
-            },
-        ]
-        try {
-            const response = await api.updateAccount({ id, requestBody })
-            return response.data
-        } catch (error: any) {
-            if (error.response?.status === 429) {
-                throw error
-            }
-            return {}
+        let api: AccountsApi
+        if (agent) {
+            api = new AccountsApi(
+                this.config,
+                undefined,
+                axios.create({
+                    httpsAgent: agent,
+                })
+            )
+        } else {
+            api = new AccountsApi(this.config)
         }
+
+        const requestParameters: AccountsApiUpdateAccountRequest = {
+            id,
+            requestBody: [
+                {
+                    op: 'replace',
+                    path: '/identityId',
+                    value: identityId,
+                },
+            ],
+        }
+
+        const response = await api.updateAccount(requestParameters)
+        return response.data
     }
 
     async batchCreateForms(uniqueForms: CreateFormDefinitionRequestBeta[]): Promise<FormDefinitionResponseBeta[]> {

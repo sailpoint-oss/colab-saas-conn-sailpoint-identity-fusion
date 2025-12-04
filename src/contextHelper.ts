@@ -168,7 +168,7 @@ export class ContextHelper {
         }
 
         // Set process lock if requested (typically for account aggregation)
-        if (setLock) {
+        if (setLock && !lazy) {
             await this.setProcessLock()
         }
 
@@ -373,7 +373,7 @@ export class ContextHelper {
             // make sure attributes exists before adding to map
             if (x.attributes) {
                 this.identitiesById.set(x.id, x)
-                if (this.config.uid_scope === 'platform') this.ids.add(x.attributes!.uid)
+                if (this.config.uid_scope === 'platform' && x.attributes?.uid) this.ids.add(x.attributes.uid)
             }
         })
     }
@@ -1012,7 +1012,11 @@ export class ContextHelper {
             account.attributes!.reviews ??= []
             const uniqueAccount = await this.refreshUniqueAccount(account)
 
-            await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
+            if (this.accountsToCorrelate.length > 0) {
+                const { identity, account } = this.accountsToCorrelate.shift()!
+                await this.client.correlateAccount(identity, account)
+            }
+
             return uniqueAccount
         } else {
             throw new ConnectorError('Account not found', ConnectorErrorType.NotFound)
