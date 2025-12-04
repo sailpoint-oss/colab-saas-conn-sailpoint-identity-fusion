@@ -15,6 +15,7 @@
     },
     "private": true,
     "dependencies": {
+        
         "@sailpoint/connector-sdk": "1.1.12",
         "axios": "^1.6.8",
         "axios-request-throttle": "^1.0.0",
@@ -31,13 +32,16 @@
         "velocityjs": "^2.0.6"
     },
     "devDependencies": {
+        "@jest/core": "^29.7.0",
         "@eslint/js": "^9.9.0",
+        "@types/axios-mock-adapter": "^1.10.4",
         "@types/fast-levenshtein": "^0.0.2",
         "@types/jest": "^29.5.14",
         "@types/markdown-it": "^13.0.7",
         "@types/node": "^20.11.17",
         "@types/uuid": "^9.0.8",
         "@vercel/ncc": "^0.38.1",
+        "axios-mock-adapter": "^2.1.0",
         "cross-env": "7.0.3",
         "dotenv": "^16.4.7",
         "eslint": "^9.9.0",

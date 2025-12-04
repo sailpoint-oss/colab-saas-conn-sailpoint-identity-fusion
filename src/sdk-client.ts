@@ -192,7 +192,8 @@ export class SDKClient {
 
     constructor(config: any) {
         const tokenUrl = new URL(config.baseurl).origin + TOKEN_URL_PATH
-        this.config = new Configuration({ ...config, tokenUrl, retriesConfig })
+        this.config = new Configuration({ ...config, tokenUrl })
+        this.config.retriesConfig = retriesConfig
         axiosRetry(axios as any, retriesConfig)
     }
 
