@@ -1,106 +1,33 @@
-import axios from 'axios'
 import env from 'dotenv'
-import { Configuration } from './test-config'
 import { fail } from 'assert'
 import Airtable from 'airtable/lib/airtable'
-import { StdAccountCreateInput } from '@sailpoint/connector-sdk'
-import { AirtableAccount } from '../../airtableTemp/models/AirtableAccount'
-import crypto from 'crypto'
+import { setupFusionSource, FusionSourceInfo } from './helpers/fusion-source-setup'
+import { runAggregationAndWait, verifyAccountAggregated } from './helpers/fusion-aggregation'
+import {
+    setupAirtableClient,
+    createTestAccount,
+    cleanupTestAccounts,
+    AirtableTestRecord,
+} from './helpers/airtable-helper'
 
 env.config()
 
-// Test configuration for Fusion Integration Test
-const getFusionIntegrationTestConfig = (spConnectorInstanceId: string) => ({
-    tag: 'latest',
-    type: 'std:account:list',
-    config: {
-        clientId: process.env.SAIL_CLIENT_ID,
-        clientSecret: process.env.SAIL_CLIENT_SECRET,
-        baseurl: process.env.SAIL_BASE_URL,
-        spConnectorInstanceId,
-        sources: ['Fusion Integration Test Primary'],
-        cloudDisplayName: 'fusion-connector-integration-test',
-        merging_map: [
-            {
-                identity: 'email',
-                account: ['email', 'Email'],
-                uidOnly: true,
-            },
-        ],
-        global_merging_score: true,
-        merging_score: 90,
-        merging_isEnabled: true,
-        merging_attributes: ['email'],
-        merging_expirationDays: 5,
-    },
-    input: {},
-})
-
-interface AirtableTestRecord {
-    airtableRecordId: string
-    accountId: string
-}
-
 describe('Fusion Connector Integration Tests', () => {
-    let token: string
-    let spConnectorInstanceId: string
+    let fusionSource: FusionSourceInfo
     let airtableClient: Airtable.Base
     const createdRecords: AirtableTestRecord[] = []
 
     beforeAll(async () => {
-        // Get SailPoint token
-        const config = new Configuration()
-        token = await config.getToken(
-            process.env.SAIL_BASE_URL!,
-            process.env.SAIL_CLIENT_ID!,
-            process.env.SAIL_CLIENT_SECRET!
-        )
+        // Setup Fusion source (authenticate, find source, patch with test config)
+        fusionSource = await setupFusionSource()
 
-        // Fetch the fusion connector instance ID by searching for "Employees" source
-        const sourcesUrl = `${process.env.SAIL_BASE_URL}/v2025/sources?filters=name eq "Employees"`
-        
-        try {
-            const response = await axios.get(sourcesUrl, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-            })
-
-            if (response.data && response.data.length > 0) {
-                spConnectorInstanceId = response.data[0].id
-                console.log(`Found connector instance ID: ${spConnectorInstanceId}`)
-            } else {
-                throw new Error('Source "Employees" not found')
-            }
-        } catch (error) {
-            console.error('Failed to fetch connector instance ID:', error)
-            throw error
-        }
-
-        // Configure Airtable client
-        if (!process.env.AIRTABLE_TOKEN) {
-            throw new Error('AIRTABLE_TOKEN environment variable is required')
-        }
-        if (!process.env.AIRTABLE_PRIMARY_BASE) {
-            throw new Error('AIRTABLE_PRIMARY_BASE environment variable is required')
-        }
-
-        Airtable.configure({ apiKey: process.env.AIRTABLE_TOKEN })
-        airtableClient = Airtable.base(process.env.AIRTABLE_PRIMARY_BASE)
+        // Setup Airtable client
+        airtableClient = setupAirtableClient()
     })
 
     afterAll(async () => {
-        // Clean up all created records
-        console.log(`Cleaning up ${createdRecords.length} test records...`)
-        for (const record of createdRecords) {
-            try {
-                await airtableClient('Users').destroy(record.airtableRecordId)
-                console.log(`Deleted record: ${record.accountId}`)
-            } catch (error) {
-                console.error(`Failed to delete record ${record.accountId}:`, error)
-            }
-        }
+        // Clean up all created test records
+        await cleanupTestAccounts(airtableClient, createdRecords)
     })
 
     it('should create a new account in Airtable and verify fusion connector can retrieve it', async () => {
@@ -109,97 +36,51 @@ describe('Fusion Connector Integration Tests', () => {
         const uniqueId = `test-user-${timestamp}`
         const testEmail = `test.user.${timestamp}@example.com`
 
-        // Create test account input
-        const accountInput: StdAccountCreateInput = {
-            identity: uniqueId,
-            attributes: {
-                id: uniqueId,
-                displayName: `Test User ${timestamp}`,
-                email: testEmail,
-                firstName: 'Test',
-                lastName: `User${timestamp}`,
-                department: 'Engineering',
-                password: crypto.randomBytes(20).toString('hex'),
-                enabled: 'true',
-                locked: 'false',
-                entitlements: 'admin,user',
-            },
-        }
+        // Create test account in Airtable
+        const record = await createTestAccount(airtableClient, {
+            id: uniqueId,
+            email: testEmail,
+            displayName: `Test User ${timestamp}`,
+            firstName: 'Test',
+            lastName: `User${timestamp}`,
+            department: 'Engineering',
+        })
 
-        // Create the account model from input
-        const account = AirtableAccount.createWithStdAccountCreateInput(accountInput)
+        // Store for cleanup
+        createdRecords.push(record)
 
-        console.log(`Creating test account in Airtable: ${uniqueId}`)
-
-        // Create the record in Airtable
+        // Trigger aggregation and wait for completion
         try {
-            const record = await airtableClient('Users').create({
-                displayName: account.displayName,
-                email: account.email,
-                id: account.id,
-                enabled: account.enabled ? 'true' : 'false',
-                department: account.department,
-                firstName: account.firstName,
-                lastName: account.lastName,
-                locked: account.locked ? 'true' : 'false',
-                password: account.password ? account.password : crypto.randomBytes(20).toString('hex'),
-                entitlements: account.entitlments.join(','),
-            })
+            const aggregationResult = await runAggregationAndWait(
+                fusionSource.token,
+                fusionSource.fusionSourceId
+            )
 
-            // Store the record ID for cleanup
-            createdRecords.push({
-                airtableRecordId: record.id,
-                accountId: account.id,
-            })
-
-            console.log(`Successfully created Airtable record: ${record.id}`)
-
-            // Verify the record was created
-            expect(record.id).toBeDefined()
-            expect(record.get('id')).toBe(uniqueId)
-            expect(record.get('email')).toBe(testEmail)
+            expect(aggregationResult.status).toMatch(/COMPLETED/)
+            console.log(`Aggregation completed. Total accounts: ${aggregationResult.totalAccounts || 'N/A'}`)
         } catch (error) {
-            fail(`Failed to create account in Airtable: ${error}`)
+            fail(`Aggregation failed: ${error}`)
         }
 
-        // Now invoke the fusion connector to verify it can retrieve the account
-        const fusionConfig = getFusionIntegrationTestConfig(spConnectorInstanceId)
-        const data = JSON.stringify(fusionConfig)
-
-        const invokeConfig = {
-            method: 'post',
-            maxBodyLength: Infinity,
-            url: `${process.env.SAIL_BASE_URL}/v2024/platform-connectors/${process.env.STACK}/invoke`,
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                'X-SailPoint-Experimental': 'true',
-                Authorization: `Bearer ${token}`,
-            },
-            data: data,
-        }
-
+        // Verify the account was aggregated
         try {
-            console.log('Invoking fusion connector...')
-            const response = await axios.request(invokeConfig)
-            
-            expect(response.status).toBe(200)
-            expect(response.data).toBeDefined()
-
-            // Verify the created account is in the response
-            const accounts = response.data
-            const foundAccount = accounts.find((acc: any) => acc.identity === uniqueId || acc.key?.simple?.id === uniqueId)
+            const foundAccount = await verifyAccountAggregated(
+                fusionSource.token,
+                fusionSource.fusionSourceId,
+                uniqueId,
+                testEmail
+            )
 
             expect(foundAccount).toBeDefined()
-            if (foundAccount) {
-                console.log(`Successfully found account in fusion connector response: ${uniqueId}`)
-                // Verify account attributes
-                expect(foundAccount.attributes?.email || foundAccount.email).toBe(testEmail)
-            }
+            expect(foundAccount.nativeIdentity).toBe(uniqueId)
+            
+            // Verify account attributes
+            const accountEmail = foundAccount.attributes?.email || foundAccount.attributes?.Email
+            expect(accountEmail).toBe(testEmail)
+            
+            console.log(`Successfully verified account ${uniqueId} was aggregated`)
         } catch (error) {
-            fail(`Fusion connector invocation failed: ${error}`)
+            fail(`Account verification failed: ${error}`)
         }
     })
-
 })
-
