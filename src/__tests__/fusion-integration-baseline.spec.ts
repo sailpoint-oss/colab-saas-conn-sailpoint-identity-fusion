@@ -7,13 +7,16 @@ import {
     setupAirtableClient,
     createTestAccount,
     cleanupTestAccounts,
+    deleteAllRecords,
     AirtableTestRecord,
 } from './helpers/airtable-helper'
+import { setupAirtableSource, aggregateAirtableSource, AirtableSourceInfo } from './helpers/airtable-source-helper'
 
 env.config()
 
 describe('Fusion Connector Integration Tests', () => {
     let fusionSource: FusionSourceInfo
+    let airtableSource: AirtableSourceInfo
     let airtableClient: Airtable.Base
     const createdRecords: AirtableTestRecord[] = []
 
@@ -21,8 +24,15 @@ describe('Fusion Connector Integration Tests', () => {
         // Setup Fusion source (authenticate, find source, patch with test config)
         fusionSource = await setupFusionSource()
 
+        // Setup Airtable source
+        airtableSource = await setupAirtableSource('Fusion Integration Test Primary')
+
         // Setup Airtable client
         airtableClient = setupAirtableClient()
+
+        // Delete all existing records from the Users table to ensure a clean state
+        console.log('Cleaning up Airtable database before tests...')
+        await deleteAllRecords(airtableClient, ['Users'])
 
         // Trigger aggregation and wait for completion to clean up any existing accounts
         try {
@@ -62,7 +72,16 @@ describe('Fusion Connector Integration Tests', () => {
         // Store for cleanup
         createdRecords.push(record)
 
-        // Trigger aggregation and wait for completion
+        // Trigger Airtable source aggregation to pick up the new account
+        try {
+            const airtableAggregationResult = await aggregateAirtableSource(airtableSource)
+            expect(airtableAggregationResult.status).toMatch(/COMPLETED/)
+            console.log(`Airtable aggregation completed. Total accounts: ${airtableAggregationResult.totalAccounts || 'N/A'}`)
+        } catch (error) {
+            fail(`Airtable aggregation failed: ${error}`)
+        }
+
+        // Trigger Fusion aggregation and wait for completion
         try {
             const fusionConfig = getFusionTestConfig();
             fusionConfig.reset = false;
@@ -89,7 +108,7 @@ describe('Fusion Connector Integration Tests', () => {
             )
 
             expect(foundAccount).toBeDefined()
-            expect(foundAccount.nativeIdentity).toBe(uniqueId)
+            expect(foundAccount.attributes?.id).toBe(uniqueId)
             
             // Verify account attributes
             const accountEmail = foundAccount.attributes?.email || foundAccount.attributes?.Email

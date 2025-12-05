@@ -133,3 +133,86 @@ export async function cleanupTestAccounts(
     }
 }
 
+/**
+ * Delete all records from a specific Airtable table
+ * @param airtableClient - Airtable base client
+ * @param tableName - Name of the table to clear (e.g., 'Users')
+ * @returns Number of records deleted
+ */
+export async function deleteAllRecordsFromTable(
+    airtableClient: Airtable.Base,
+    tableName: string
+): Promise<number> {
+    console.log(`Deleting all records from table: ${tableName}`)
+    
+    try {
+        // Fetch all record IDs from the table
+        const recordIds: string[] = []
+        
+        await airtableClient(tableName)
+            .select({
+                fields: [], // We only need IDs, not field data
+            })
+            .eachPage((records, fetchNextPage) => {
+                records.forEach((record) => {
+                    recordIds.push(record.id)
+                })
+                fetchNextPage()
+            })
+
+        if (recordIds.length === 0) {
+            console.log(`No records found in table ${tableName}`)
+            return 0
+        }
+
+        console.log(`Found ${recordIds.length} records to delete from ${tableName}`)
+
+        // Airtable allows batch deletion of up to 10 records at a time
+        const batchSize = 10
+        let deletedCount = 0
+
+        for (let i = 0; i < recordIds.length; i += batchSize) {
+            const batch = recordIds.slice(i, i + batchSize)
+            await airtableClient(tableName).destroy(batch)
+            deletedCount += batch.length
+            console.log(`Deleted ${deletedCount}/${recordIds.length} records from ${tableName}`)
+        }
+
+        console.log(`Successfully deleted all ${deletedCount} records from ${tableName}`)
+        return deletedCount
+    } catch (error) {
+        console.error(`Failed to delete records from table ${tableName}:`, error)
+        throw new Error(`Failed to delete all records from ${tableName}: ${error}`)
+    }
+}
+
+/**
+ * Delete all records from multiple Airtable tables
+ * @param airtableClient - Airtable base client
+ * @param tableNames - Array of table names to clear (defaults to ['Users'])
+ * @returns Object with table names and count of deleted records
+ */
+export async function deleteAllRecords(
+    airtableClient: Airtable.Base,
+    tableNames: string[] = ['Users']
+): Promise<Record<string, number>> {
+    console.log(`Starting cleanup of ${tableNames.length} table(s)...`)
+    
+    const results: Record<string, number> = {}
+
+    for (const tableName of tableNames) {
+        try {
+            const deletedCount = await deleteAllRecordsFromTable(airtableClient, tableName)
+            results[tableName] = deletedCount
+        } catch (error) {
+            console.error(`Failed to clean up table ${tableName}:`, error)
+            results[tableName] = 0
+        }
+    }
+
+    const totalDeleted = Object.values(results).reduce((sum, count) => sum + count, 0)
+    console.log(`Cleanup complete. Total records deleted: ${totalDeleted}`)
+    
+    return results
+}
+

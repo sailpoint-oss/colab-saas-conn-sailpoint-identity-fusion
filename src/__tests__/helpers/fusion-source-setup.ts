@@ -63,7 +63,7 @@ export function getFusionTestConfig(): FusionTestConfig {
         attributeMerge: 'first',
         global_merging_identical: false,
         reset: true,
-        uid_template: '#set($initial = $firstname.substring(0, 1))$initial$lastname$counter',
+        uid_template: '#set($initial = $firstName.substring(0, 1))$initial$lastName$counter',
         uid_scope: 'source',
     }
 }
