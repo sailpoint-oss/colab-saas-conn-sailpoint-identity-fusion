@@ -4,6 +4,9 @@ import { Configuration } from '../test-config'
 
 env.config()
 
+// Global storage for the spConnectorInstanceId
+let cachedSpConnectorInstanceId: string | null = null
+
 export interface FusionSourceInfo {
     token: string
     spConnectorInstanceId: string
@@ -31,14 +34,18 @@ export interface FusionTestConfig {
 }
 
 /**
- * Get the Fusion test configuration
+ * Get the Fusion test configuration using the globally cached spConnectorInstanceId
  */
-export function getFusionTestConfig(spConnectorInstanceId: string): FusionTestConfig {
+export function getFusionTestConfig(): FusionTestConfig {
+    if (!cachedSpConnectorInstanceId) {
+        throw new Error('spConnectorInstanceId not set. Please call setupFusionSource() first.')
+    }
+    
     return {
         clientId: process.env.SAIL_CLIENT_ID!,
         clientSecret: process.env.SAIL_CLIENT_SECRET!,
         baseurl: process.env.SAIL_BASE_URL!,
-        spConnectorInstanceId,
+        spConnectorInstanceId: cachedSpConnectorInstanceId,
         sources: ['Fusion Integration Test Primary'],
         cloudDisplayName: 'fusion-connector-integration-test',
         merging_map: [
@@ -62,12 +69,11 @@ export function getFusionTestConfig(spConnectorInstanceId: string): FusionTestCo
 }
 
 /**
- * Setup Fusion source for testing:
- * 1. Authenticate with SailPoint
- * 2. Find the Fusion Integration Test Source
- * 3. Patch it with test configuration
+ * Get the Fusion test configuration with automatic spConnectorInstanceId lookup
+ * @param sourceName - Name of the fusion source (defaults to 'Fusion Integration Test Source')
+ * @returns FusionTestConfig with automatically found spConnectorInstanceId
  */
-export async function setupFusionSource(sourceName: string = 'Fusion Integration Test Source'): Promise<FusionSourceInfo> {
+export async function getAutoFusionTestConfig(sourceName: string = 'Fusion Integration Test Source'): Promise<FusionTestConfig> {
     // Get SailPoint token
     const config = new Configuration()
     const token = await config.getToken(
@@ -79,9 +85,6 @@ export async function setupFusionSource(sourceName: string = 'Fusion Integration
     // Fetch the fusion connector instance ID by searching for the source
     const sourcesUrl = `${process.env.SAIL_BASE_URL}/v2025/sources?filters=name eq "${sourceName}"`
     
-    let spConnectorInstanceId: string
-    let fusionSourceId: string
-
     try {
         const response = await axios.get(sourcesUrl, {
             headers: {
@@ -91,9 +94,11 @@ export async function setupFusionSource(sourceName: string = 'Fusion Integration
         })
 
         if (response.data && response.data.length > 0) {
-            spConnectorInstanceId = response.data[0].connectorAttributes.spConnectorInstanceId
-            fusionSourceId = response.data[0].id
-            console.log(`Found connector instance ID: ${spConnectorInstanceId} and fusion source ID: ${fusionSourceId}`)
+            const spConnectorInstanceId = response.data[0].connectorAttributes.spConnectorInstanceId
+            console.log(`Found connector instance ID: ${spConnectorInstanceId}`)
+            // Cache the spConnectorInstanceId
+            cachedSpConnectorInstanceId = spConnectorInstanceId
+            return getFusionTestConfig()
         } else {
             throw new Error(`Source "${sourceName}" not found`)
         }
@@ -101,98 +106,107 @@ export async function setupFusionSource(sourceName: string = 'Fusion Integration
         console.error('Failed to fetch connector instance ID:', error)
         throw error
     }
+}
 
-    // Patch the existing Fusion source with test configuration
+/**
+ * Update the Fusion source configuration by patching the connector attributes
+ * @param token - SailPoint authentication token
+ * @param fusionSourceId - ID of the fusion source to update
+ * @param fusionConfig - Fusion test configuration to apply
+ */
+export async function updateFusionSourceConfig(
+    token: string,
+    fusionSourceId: string,
+    fusionConfig: FusionTestConfig
+): Promise<void> {
     console.log(`Patching Fusion source ${fusionSourceId} with test configuration`)
-    
-    const testConfig = getFusionTestConfig(spConnectorInstanceId)
     
     // Create JSON Patch operations for the connector attributes
     const patchOperations = [
         {
             op: 'add',
             path: '/connectorAttributes/clientId',
-            value: testConfig.clientId,
+            value: fusionConfig.clientId,
         },
         {
             op: 'add',
             path: '/connectorAttributes/clientSecret',
-            value: testConfig.clientSecret,
+            value: fusionConfig.clientSecret,
         },
         {
             op: 'add',
             path: '/connectorAttributes/baseurl',
-            value: testConfig.baseurl,
+            value: fusionConfig.baseurl,
         },
         {
             op: 'add',
             path: '/connectorAttributes/spConnectorInstanceId',
-            value: testConfig.spConnectorInstanceId,
+            value: fusionConfig.spConnectorInstanceId,
         },
         {
             op: 'add',
             path: '/connectorAttributes/sources',
-            value: testConfig.sources,
+            value: fusionConfig.sources,
         },
         {
             op: 'add',
             path: '/connectorAttributes/cloudDisplayName',
-            value: testConfig.cloudDisplayName,
+            value: fusionConfig.cloudDisplayName,
         },
         {
             op: 'add',
             path: '/connectorAttributes/merging_map',
-            value: testConfig.merging_map,
+            value: fusionConfig.merging_map,
         },
         {
             op: 'add',
             path: '/connectorAttributes/global_merging_score',
-            value: testConfig.global_merging_score,
+            value: fusionConfig.global_merging_score,
         },
         {
             op: 'add',
             path: '/connectorAttributes/merging_score',
-            value: testConfig.merging_score.toString(),
+            value: fusionConfig.merging_score.toString(),
         },
         {
             op: 'add',
             path: '/connectorAttributes/merging_isEnabled',
-            value: testConfig.merging_isEnabled,
+            value: fusionConfig.merging_isEnabled,
         },
         {
             op: 'add',
             path: '/connectorAttributes/merging_attributes',
-            value: testConfig.merging_attributes,
+            value: fusionConfig.merging_attributes,
         },
         {
             op: 'add',
             path: '/connectorAttributes/merging_expirationDays',
-            value: testConfig.merging_expirationDays.toString(),
+            value: fusionConfig.merging_expirationDays.toString(),
         },
         {
             op: 'add',
             path: '/connectorAttributes/attributeMerge',
-            value: testConfig.attributeMerge,
+            value: fusionConfig.attributeMerge,
         },
         {
             op: 'add',
             path: '/connectorAttributes/global_merging_identical',
-            value: testConfig.global_merging_identical,
+            value: fusionConfig.global_merging_identical,
         },
         {
             op: 'add',
             path: '/connectorAttributes/reset',
-            value: testConfig.reset,
+            value: fusionConfig.reset,
         },
         {
             op: 'add',
             path: '/connectorAttributes/uid_template',
-            value: testConfig.uid_template,
+            value: fusionConfig.uid_template,
         },
         {
             op: 'add',
             path: '/connectorAttributes/uid_scope',
-            value: testConfig.uid_scope,
+            value: fusionConfig.uid_scope,
         },
     ]
 
@@ -213,6 +227,54 @@ export async function setupFusionSource(sourceName: string = 'Fusion Integration
         console.error('Failed to patch Fusion source:', error.response?.data || error.message)
         throw new Error(`Failed to patch Fusion source: ${error.response?.data?.message || error.message}`)
     }
+}
+
+/**
+ * Setup Fusion source for testing:
+ * 1. Authenticate with SailPoint
+ * 2. Find the Fusion Integration Test Source
+ * 3. Patch it with test configuration
+ */
+export async function setupFusionSource(sourceName: string = 'Fusion Integration Test Source'): Promise<FusionSourceInfo> {
+    // Get SailPoint token
+    const config = new Configuration()
+    const token = await config.getToken(
+        process.env.SAIL_BASE_URL!,
+        process.env.SAIL_CLIENT_ID!,
+        process.env.SAIL_CLIENT_SECRET!
+    )
+
+    // Fetch the fusion connector instance ID and source ID by searching for the source
+    const sourcesUrl = `${process.env.SAIL_BASE_URL}/v2025/sources?filters=name eq "${sourceName}"`
+    
+    let spConnectorInstanceId: string
+    let fusionSourceId: string
+
+    try {
+        const response = await axios.get(sourcesUrl, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        })
+
+        if (response.data && response.data.length > 0) {
+            spConnectorInstanceId = response.data[0].connectorAttributes.spConnectorInstanceId
+            fusionSourceId = response.data[0].id
+            console.log(`Found connector instance ID: ${spConnectorInstanceId} and fusion source ID: ${fusionSourceId}`)
+            // Cache the spConnectorInstanceId globally
+            cachedSpConnectorInstanceId = spConnectorInstanceId
+        } else {
+            throw new Error(`Source "${sourceName}" not found`)
+        }
+    } catch (error) {
+        console.error('Failed to fetch connector instance ID:', error)
+        throw error
+    }
+
+    // Get test configuration and update the fusion source
+    const testConfig = getFusionTestConfig()
+    await updateFusionSourceConfig(token, fusionSourceId, testConfig)
 
     return {
         token,

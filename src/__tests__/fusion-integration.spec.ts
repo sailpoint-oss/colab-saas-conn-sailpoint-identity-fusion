@@ -1,7 +1,7 @@
 import env from 'dotenv'
 import { fail } from 'assert'
 import Airtable from 'airtable/lib/airtable'
-import { setupFusionSource, FusionSourceInfo } from './helpers/fusion-source-setup'
+import { setupFusionSource, FusionSourceInfo, getFusionTestConfig, updateFusionSourceConfig } from './helpers/fusion-source-setup'
 import { runAggregationAndWait, verifyAccountAggregated } from './helpers/fusion-aggregation'
 import {
     setupAirtableClient,
@@ -23,6 +23,19 @@ describe('Fusion Connector Integration Tests', () => {
 
         // Setup Airtable client
         airtableClient = setupAirtableClient()
+
+        // Trigger aggregation and wait for completion to clean up any existing accounts
+        try {
+            const aggregationResult = await runAggregationAndWait(
+                fusionSource.token,
+                fusionSource.fusionSourceId
+            )
+
+            expect(aggregationResult.status).toMatch(/COMPLETED/)
+            console.log(`Aggregation completed. Total accounts: ${aggregationResult.totalAccounts || 'N/A'}`)
+        } catch (error) {
+            fail(`Aggregation failed: ${error}`)
+        }
     })
 
     afterAll(async () => {
@@ -51,6 +64,10 @@ describe('Fusion Connector Integration Tests', () => {
 
         // Trigger aggregation and wait for completion
         try {
+            const fusionConfig = getFusionTestConfig();
+            fusionConfig.reset = false;
+            await updateFusionSourceConfig(fusionSource.token, fusionSource.fusionSourceId, fusionConfig);
+
             const aggregationResult = await runAggregationAndWait(
                 fusionSource.token,
                 fusionSource.fusionSourceId
