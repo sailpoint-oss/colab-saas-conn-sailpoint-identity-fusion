@@ -14,7 +14,7 @@ import { setupAirtableSource, aggregateAirtableSource, AirtableSourceInfo } from
 
 env.config()
 
-describe('Fusion Connector Integration Tests', () => {
+describe('Fusion Connector Baseline Integration Tests', () => {
     let fusionSource: FusionSourceInfo
     let airtableSource: AirtableSourceInfo
     let airtableClient: Airtable.Base
@@ -53,7 +53,7 @@ describe('Fusion Connector Integration Tests', () => {
         await cleanupTestAccounts(airtableClient, createdRecords)
     })
 
-    it('should create a new account in Airtable and verify fusion connector can retrieve it', async () => {
+    it('should create a baseline account and verify fusion connector properties (uniqueId, accounts, uuid, history)', async () => {
         // Generate unique test data
         const timestamp = Date.now()
         const uniqueId = `test-user-${timestamp}`
@@ -115,6 +115,37 @@ describe('Fusion Connector Integration Tests', () => {
             expect(accountEmail).toBe(testEmail)
             
             console.log(`Successfully verified account ${uniqueId} was aggregated`)
+
+            // Additional baseline verification checks
+            
+            // 1. Check uniqueId is properly populated (format: firstInitial + lastName + counter)
+            const uniqueIdValue = foundAccount.attributes?.uniqueId
+            expect(uniqueIdValue).toBeDefined()
+            expect(uniqueIdValue).toBeTruthy()
+            // Expected format: T (first initial) + User{timestamp} + counter
+            expect(uniqueIdValue).toMatch(/^T.*\d+$/)
+            console.log(`✓ uniqueId is properly populated: ${uniqueIdValue}`)
+
+            // 2. Check accounts array length is 1
+            const accounts = foundAccount.attributes?.accounts
+            expect(accounts).toBeDefined()
+            expect(Array.isArray(accounts)).toBe(true)
+            expect(accounts.length).toBe(1)
+            console.log(`✓ accounts array contains ${accounts.length} account(s)`)
+
+            // 3. Ensure uuid is populated
+            const uuid = foundAccount.uuid
+            expect(uuid).toBeDefined()
+            expect(uuid).toBeTruthy()
+            console.log(`✓ uuid is populated: ${uuid}`)
+
+            // 4. Check history contains "Baseline account" string
+            const history = foundAccount.attributes?.history
+            expect(history).toBeDefined()
+            expect(history).toContain('Baseline account')
+            console.log(`✓ history contains "Baseline account"`)
+
+            console.log(`All baseline verification checks passed for account ${uniqueId}`)
         } catch (error) {
             fail(`Account verification failed: ${error}`)
         }
