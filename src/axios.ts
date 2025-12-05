@@ -16,24 +16,28 @@ export const retriesConfig: IAxiosRetryConfig = {
             if (retryAfter) {
                 // Convert retry-after from seconds to milliseconds
                 const retryAfterMs = Number(retryAfter) * 1000
-                logger.debug(`Using retry-after header: ${retryAfter}s (${retryAfterMs}ms)`)
                 return retryAfterMs
             }
         }
         
         // Exponential backoff: 2^retryCount * 1000ms (1s, 2s, 4s, 8s, etc., max 60s)
         const exponentialDelay = Math.min(Math.pow(2, retryCount) * 1000, 60 * 1000)
-        logger.debug(`Using exponential backoff: ${exponentialDelay}ms for retry ${retryCount}`)
         return exponentialDelay
     },
     retryCondition: (error) => {
         return axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error) || error.response?.status === 429
     },
     onRetry: (retryCount, error, requestConfig) => {
-        logger.debug(
-            `Retrying API [${requestConfig.url}] due to request error: [${error}]. Retry number [${retryCount}]`
+        const status = error.response?.status || 'Network Error'
+        const delay = error.response?.headers ? 
+            (error.response.headers as AxiosResponseHeaders).get('retry-after') : 
+            Math.min(Math.pow(2, retryCount) * 1000, 60 * 1000) / 1000
+        const delayType = error.response?.headers?.['retry-after'] ? 'server-specified' : 'exponential backoff'
+        
+        logger.warn(
+            `Request to [${requestConfig.url}] failed with status [${status}]. ` +
+            `Waiting ${delay}s (${delayType}) before retry attempt ${retryCount}/${RETRIES}`
         )
-        logger.error(error)
     },
 }
 
