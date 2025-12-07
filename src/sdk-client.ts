@@ -46,6 +46,8 @@ import {
     TaskManagementBetaApi,
     TransformRead,
     AccountsApiUpdateAccountRequest,
+    IdentitiesV2025Api,
+    IdentityV2025,
 } from 'sailpoint-api-client'
 import { URL } from 'url'
 import { RETRIES, TASKRESULTRETRIES, TASKRESULTWAIT, TOKEN_URL_PATH } from './constants'
@@ -283,8 +285,8 @@ export class SDKClient {
         return response.data[0] as IdentityDocument | undefined
     }
 
-    async getIdentity(id: string): Promise<IdentityBeta | undefined> {
-        const api = new IdentitiesBetaApi(this.config)
+    async getIdentity(id: string): Promise<IdentityV2025 | undefined> {
+        const api = new IdentitiesV2025Api(this.config)
 
         const response = await api.getIdentity({ id })
 
@@ -495,14 +497,21 @@ export class SDKClient {
 
     async batchCorrelateAccounts(
         correlationConfigs: { identity: string; account: string }[],
-        concurrency: number = 10
+        concurrency: number = 10,
+        randomDelay: boolean = false
     ) {
         const agent = new Agent({ keepAlive: true, maxSockets: concurrency })
 
         const correlations = await batchRetry(
             correlationConfigs,
             ({ identity, account }: { identity: string; account: string }) =>
-                this.correlateAccount(identity, account, agent),
+                (async () => {
+                    if (randomDelay) {
+                        const delay = Math.floor(Math.random() * 1000 * 10) // 0 to 10,000 ms (10 s)
+                        await new Promise((resolve) => setTimeout(resolve, delay))
+                    }
+                    return this.correlateAccount(identity, account, agent)
+                })(),
             concurrency,
             20,
             (processed: number, total: number, duration: number) =>

@@ -37,6 +37,7 @@ import {
     stringifyScore,
 } from './utils'
 import {
+    ACCOUNT_MODIFICATION_THRESHOLD,
     CONCURRENCY,
     EDITFORMNAME,
     NONAGGREGABLE_TYPES,
@@ -59,6 +60,7 @@ import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
 import { batch } from './utils/batch'
+import { MinimalIdentity } from './model/identity'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -177,13 +179,6 @@ export class ContextHelper {
         } else {
             await this.getSchema()
         }
-
-        const owner = getOwnerFromSource(this.source)
-        if (!owner) {
-            throw new ConnectorError('Source owner is required')
-        }
-        const wfName = `${WORKFLOW_NAME} (${this.config!.cloudDisplayName})`
-        this.emailer = await this.getEmailWorkflow(wfName, owner)
 
         const accountIdentites = await this.getSourceIdentityAttributes()
         const transformName = `${TRANSFORM_NAME} (${this.config!.cloudDisplayName})`
@@ -623,13 +618,13 @@ export class ContextHelper {
         }
 
         // Run correlations
-        logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
-        await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
+        // logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
+        // await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
 
-        // Reset counter for next batch
-        this.correlationCounter = 0
-        this.accounts = []
-        this.accountsToCorrelate = []
+        // // Reset counter for next batch
+        // this.correlationCounter = 0
+        // this.accounts = []
+        // this.accountsToCorrelate = []
 
         return uniqueAccounts
     }
@@ -654,6 +649,17 @@ export class ContextHelper {
         }
 
         return identity
+    }
+
+    private async getAccountIdentityId(account: Account): Promise<string | undefined> {
+        let id: string | undefined
+        if (this.initiated === 'full') {
+            id = this.identitiesById.get(account.identityId!)?.id
+        } else {
+            id = (await this.client.getIdentity(account.identityId!))?.id
+        }
+
+        return id
     }
 
     async checkSelectedSourcesAggregation() {
@@ -735,6 +741,27 @@ export class ContextHelper {
         }
     }
 
+    async getMinimalIdentity(identityId: string): Promise<MinimalIdentity | undefined> {
+        if (this.initiated === 'full') {
+            const identity = this.identitiesById.get(identityId)
+            if (identity) {
+                return {
+                    id: identity.id,
+                    accounts: identity.accounts?.map((a) => a.id!) ?? [],
+                }
+            }
+        } else {
+            const identity = await this.client.getIdentity(identityId)
+            if (identity) {
+                const accounts = await this.client.getAccountsByIdentity(identityId)
+                return {
+                    id: identity.id!,
+                    accounts: accounts.map((a) => a.id!) ?? [],
+                }
+            }
+        }
+    }
+
     async refreshUniqueAccount(account: Account): Promise<UniqueAccount> {
         const c = 'refreshUniqueAccount'
 
@@ -745,25 +772,30 @@ export class ContextHelper {
         const fusionAccountIds = new Set(account.attributes!.accounts as string[])
         const finalAccountIds: string[] = []
 
-        const identity = await this.getAccountIdentity(account)
+        const identity = await this.getMinimalIdentity(account.identityId!)
         if (identity) {
-            const correlatedAccounts = identity.accounts ?? []
-            //Checking if the Fusion account got any extra source accounts
-            for (const correlatedAccount of correlatedAccounts) {
-                const id = correlatedAccount.id!
-                const newSourceAccount = await this.getSourceAccount(id)
+            const correlatedAccountIds = identity.accounts ?? []
+
+            for (const correlatedAccountId of correlatedAccountIds) {
+                const newSourceAccount = await this.getSourceAccount(correlatedAccountId)
                 if (newSourceAccount) {
-                    if (!fusionAccountIds.has(id)) {
+                    if (!fusionAccountIds.has(correlatedAccountId)) {
                         accountsChanged = true
                     }
 
-                    finalAccountIds.push(id)
-                    fusionAccountIds.delete(id)
+                    finalAccountIds.push(correlatedAccountId)
+                    fusionAccountIds.delete(correlatedAccountId)
                 }
             }
+            const statuses = new Set(account.attributes!.statuses as string[])
+            statuses.add('correlated')
+            account.attributes!.statuses = Array.from(statuses)
+        } else {
+            const statuses = new Set(account.attributes!.statuses as string[])
+            statuses.add('uncorrelated')
+            account.attributes!.statuses = Array.from(statuses)
         }
 
-        // Checking if there's any source account pending for correlation
         for (const fusionAccountId of fusionAccountIds) {
             // Still valid
             const sourceAccount = await this.getSourceAccount(fusionAccountId)
@@ -771,6 +803,10 @@ export class ContextHelper {
                 finalAccountIds.push(fusionAccountId)
                 if (identity) {
                     // Correlate the account with the identity
+                    const statuses = new Set(account.attributes!.statuses as string[])
+                    statuses.add('uncorrelated')
+                    statuses.delete('correlated')
+                    account.attributes!.statuses = Array.from(statuses)
                     this.accountsToCorrelate.push({ identity: identity.id, account: fusionAccountId })
                 }
             }
@@ -796,7 +832,7 @@ export class ContextHelper {
                 if (account.modified && sourceAccount.modified) {
                     const accountModified = new Date(account.modified).getTime()
                     const sourceAccountModified = new Date(sourceAccount.modified).getTime()
-                    if (accountModified < sourceAccountModified) {
+                    if (accountModified < sourceAccountModified - ACCOUNT_MODIFICATION_THRESHOLD) {
                         logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
                         needsRefresh = true
                     }
@@ -1012,10 +1048,21 @@ export class ContextHelper {
             account.attributes!.reviews ??= []
             const uniqueAccount = await this.refreshUniqueAccount(account)
 
-            if (this.accountsToCorrelate.length > 0) {
-                const { identity, account } = this.accountsToCorrelate.shift()!
-                await this.client.correlateAccount(identity, account)
-            }
+            logger.debug(lm(`Accounts to correlate: ${this.accountsToCorrelate.length}`, c, 1))
+
+            await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS, true)
+            const statuses = new Set(uniqueAccount.attributes!.statuses as string[])
+            statuses.add('correlated')
+            statuses.delete('uncorrelated')
+            uniqueAccount.attributes!.statuses = Array.from(statuses)
+
+            // if (this.accountsToCorrelate.length > 0) {
+            //     const delay = Math.floor(Math.random() * 1000 * 10)
+            //     const { identity, account } = this.accountsToCorrelate.shift()!
+            //     logger.info(`Correlating ${account} account to ${identity} identity in ${delay}ms`)
+            //     await sleep(delay)
+            //     this.client.correlateAccount(identity, account)
+            // }
 
             return uniqueAccount
         } else {
@@ -1388,7 +1435,16 @@ export class ContextHelper {
     }
 
     async sendEmail(email: ReviewEmail) {
-        await this.client.testWorkflow(this.emailer!.id!, email)
+        let emailer = this.emailer
+        if (!emailer) {
+            const owner = getOwnerFromSource(this.source!)
+            if (!owner) {
+                throw new ConnectorError('Source owner is required')
+            }
+            const wfName = `${WORKFLOW_NAME} (${this.config!.cloudDisplayName})`
+            emailer = await this.getEmailWorkflow(wfName, owner)
+        }
+        await this.client.testWorkflow(emailer!.id!, email)
     }
 
     loadSchema(schema: AccountSchema) {
@@ -1413,6 +1469,9 @@ export class ContextHelper {
 
     private async getEmailWorkflow(name: string, owner: OwnerDto): Promise<WorkflowBeta | undefined> {
         const c = 'getEmailWorkflow'
+        if (this.emailer) {
+            return this.emailer
+        }
         logger.debug(lm('Fetching workflows', c, 1))
         const workflows = await this.client.listWorkflows()
         let workflow = workflows.find((x) => x.name === name)
@@ -1425,6 +1484,8 @@ export class ContextHelper {
         }
 
         if (!workflow) throw new Error('Unable to instantiate email workflow')
+
+        this.emailer = workflow
 
         return workflow
     }

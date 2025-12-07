@@ -18,4 +18,6 @@ export const statuses: StatusSource[] = [
     },
     { id: 'reviewer', name: 'Reviewer', description: 'An identity deduplication reviewer of any source' },
     { id: 'requested', name: 'Requested', description: 'Account was requested' },
+    { id: 'correlated', name: 'Correlated', description: 'All source accounts are correlated' },
+    { id: 'uncorrelated', name: 'Uncorrelated', description: 'Some source accounts are not correlated' },
 ]

@@ -445,14 +445,19 @@ export const connector = async () => {
         opLog(config, input)
         logger.info(`Updating ${input.identity} account.`)
 
-        if (config.reset) return
+        if (config.reset) {
+            return
+        }
 
         const ctx = new ContextHelper(config)
         const lazy = input.changes.findIndex((x) => x.value === 'report') === -1 ? true : false
         await ctx.init(input.schema, lazy)
 
         let account = await ctx.buildUniqueAccountFromID(input.identity)
+
         let message: string
+
+        const statuses = new Set(account.attributes.statuses as string[])
 
         if (input.changes) {
             for (const change of input.changes) {
@@ -471,7 +476,6 @@ export const connector = async () => {
                                 case 'edit':
                                     const form = await ctx.createEditForm(account)
                                     const reviewerIDs = await ctx.listReviewerIDs()
-
                                     for (const reviewerID of reviewerIDs) {
                                         const reviewer = (await ctx.getIdentityById(reviewerID)) as IdentityDocument
                                         let currentFormInstance = await ctx.getEditFormInstanceByReviewerID(
@@ -505,31 +509,31 @@ export const connector = async () => {
 
                                 default:
                                     const sourceIDs = ctx.listSources().map((x) => x.id!)
-                                    const statuses = account.attributes.statuses as string[]
                                     const actions = account.attributes.actions as string[]
                                     switch (change.op) {
                                         case AttributeChangeOp.Add:
-                                            if (!statuses.includes('reviewer')) {
-                                                statuses.push('reviewer')
+                                            if (!statuses.has('reviewer')) {
+                                                statuses.add('reviewer')
                                             }
                                             if (sourceIDs.includes(value)) {
                                                 actions.push(value)
                                             } else {
                                                 message = `Source ID ${value} is not a currently configured source.`
+                                                logger.error('[stdAccountUpdate] Source ID not configured', { value })
                                                 ctx.handleError(message)
                                             }
                                             break
                                         case AttributeChangeOp.Remove:
                                             deleteArrayItem(actions, value)
                                             if (!sourceIDs.some((x) => actions.includes(x))) {
-                                                deleteArrayItem(statuses, 'reviewer')
+                                                statuses.delete('reviewer')
                                             }
                                             break
                                         case AttributeChangeOp.Set:
-                                            if (!statuses.includes('edited')) {
+                                            if (!statuses.has('edited')) {
                                                 const now = new Date().toISOString().split('T')[0]
                                                 message = `[${now}] Account edited by attribute sync`
-                                                statuses.push('edited')
+                                                statuses.add('edited')
                                                 account.attributes[change.attribute] = value
                                                 const history = account.attributes!.history as string[]
                                                 history.push(message)
@@ -543,17 +547,19 @@ export const connector = async () => {
                             }
                             break
                         case 'statuses':
-                            message =
-                                'Status entitlements are not designed for assigment. Use action entitlements instead.'
-                            throw new ConnectorError(message, ConnectorErrorType.Generic)
-                        default:
-                            message = 'Operation not supported.'
-                            throw new ConnectorError(message, ConnectorErrorType.Generic)
+                            switch (value) {
+                                case 'correlated':
+                                    break
+                                default:
+                                    message = 'Operation not supported.'
+                                    logger.error('[stdAccountUpdate] Status operation not supported', { value })
+                                    throw new ConnectorError(message, ConnectorErrorType.Generic)
+                            }
                     }
                 }
+
+                account.attributes.statuses = Array.from(statuses)
             }
-            const statuses = account.attributes.statuses as string[]
-            account.attributes.statuses = Array.from(new Set(statuses))
             //Need to investigate about std:account:update operations without changes but adding this for the moment
         } else if ('attributes' in input) {
             logger.warn(
@@ -577,23 +583,27 @@ export const connector = async () => {
         await ctx.init(input.schema, true)
 
         //Keepalive
-        const interval = setInterval(() => {
-            res.keepAlive()
-        }, PROCESSINGWAIT)
+        // const interval = setInterval(() => {
+        //     res.keepAlive()
+        // }, PROCESSINGWAIT)
 
         try {
             const account = await ctx.buildUniqueAccountFromID(input.identity)
 
             account.disabled = false
             account.attributes.IIQDisabled = false
+            const statuses = new Set(account.attributes.statuses as string[])
+            statuses.add('correlated')
+            account.attributes.statuses = Array.from(statuses)
 
             logger.info({ account })
             res.send(account)
         } catch (error) {
             logger.error(error)
-        } finally {
-            clearInterval(interval)
         }
+        //  finally {
+        //     clearInterval(interval)
+        // }
 
         ctx.logErrors(context, input)
     }
