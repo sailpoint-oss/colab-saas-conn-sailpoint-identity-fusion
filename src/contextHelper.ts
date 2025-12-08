@@ -37,6 +37,7 @@ import {
     stringifyScore,
 } from './utils'
 import {
+    ACCOUNT_MODIFICATION_THRESHOLD,
     CONCURRENCY,
     EDITFORMNAME,
     NONAGGREGABLE_TYPES,
@@ -59,6 +60,7 @@ import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
 import { batch } from './utils/batch'
+import { MinimalIdentity } from './model/identity'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -735,35 +737,49 @@ export class ContextHelper {
         }
     }
 
+    async getMinimalIdentity(identityId: string): Promise<MinimalIdentity | undefined> {
+        if (this.initiated === 'full') {
+            const identity = this.identitiesById.get(identityId)
+            if (identity) {
+                return {
+                    id: identity.id,
+                    accounts: identity.accounts?.map((a) => a.id!) ?? [],
+                }
+            }
+        } else {
+            const identity = await this.client.getIdentity(identityId)
+            if (identity) {
+                const accounts = await this.client.getAccountsByIdentity(identityId)
+                return {
+                    id: identity.id!,
+                    accounts: accounts.map((a) => a.id!) ?? [],
+                }
+            }
+        }
+    }
+
     async refreshUniqueAccount(account: Account): Promise<UniqueAccount> {
         const c = 'refreshUniqueAccount'
-
         let needsRefresh = false
         let accountsChanged = false
-
         const sourceAccounts = await this.listSourceAccountsByAccount(account)
         const fusionAccountIds = new Set(account.attributes!.accounts as string[])
         const finalAccountIds: string[] = []
-
-        const identity = await this.getAccountIdentity(account)
+        const identity = await this.getMinimalIdentity(account.identityId!)
         if (identity) {
-            const correlatedAccounts = identity.accounts ?? []
-            //Checking if the Fusion account got any extra source accounts
-            for (const correlatedAccount of correlatedAccounts) {
-                const id = correlatedAccount.id!
-                const newSourceAccount = await this.getSourceAccount(id)
+            const correlatedAccountIds = identity.accounts ?? []
+            for (const correlatedAccountId of correlatedAccountIds) {
+                const newSourceAccount = await this.getSourceAccount(correlatedAccountId)
                 if (newSourceAccount) {
-                    if (!fusionAccountIds.has(id)) {
+                    if (!fusionAccountIds.has(correlatedAccountId)) {
                         accountsChanged = true
                     }
-
-                    finalAccountIds.push(id)
-                    fusionAccountIds.delete(id)
+                    finalAccountIds.push(correlatedAccountId)
+                    fusionAccountIds.delete(correlatedAccountId)
                 }
             }
         }
 
-        // Checking if there's any source account pending for correlation
         for (const fusionAccountId of fusionAccountIds) {
             // Still valid
             const sourceAccount = await this.getSourceAccount(fusionAccountId)
@@ -775,7 +791,6 @@ export class ContextHelper {
                 }
             }
         }
-
         if (accountsChanged) {
             const isEdited = account.attributes!.statuses.includes('edited')
             if (isEdited) {
@@ -786,26 +801,21 @@ export class ContextHelper {
             logger.debug(lm(`Accounts have changed. Refreshing account.`, c, 1))
             needsRefresh = true
         }
-
         account.attributes!.accounts = finalAccountIds
-
         if (finalAccountIds.length > 0 && !account.attributes!.statuses.includes('edited')) {
             for (const sourceAccount of sourceAccounts) {
                 if (needsRefresh) break
-
                 if (account.modified && sourceAccount.modified) {
                     const accountModified = new Date(account.modified).getTime()
                     const sourceAccountModified = new Date(sourceAccount.modified).getTime()
-                    if (accountModified < sourceAccountModified) {
+                    if (accountModified < sourceAccountModified - ACCOUNT_MODIFICATION_THRESHOLD) {
                         logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
                         needsRefresh = true
                     }
                 }
             }
         }
-
         const schema = await this.getSchema()
-
         try {
             if (needsRefresh) {
                 logger.debug(lm(`Refreshing ${account.attributes!.uniqueID} account`, c, 1))
@@ -814,9 +824,7 @@ export class ContextHelper {
         } catch (error) {
             logger.error(error as string)
         }
-
         const uniqueAccount = new UniqueAccount(account, schema)
-
         return uniqueAccount
     }
 
