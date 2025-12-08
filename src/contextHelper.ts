@@ -618,13 +618,13 @@ export class ContextHelper {
         }
 
         // Run correlations
-        // logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
-        // await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
+        logger.info(`Starting to correlate ${this.accountsToCorrelate.length} accounts`)
+        await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
 
-        // // Reset counter for next batch
-        // this.correlationCounter = 0
-        // this.accounts = []
-        // this.accountsToCorrelate = []
+        // Reset counter for next batch
+        this.correlationCounter = 0
+        this.accounts = []
+        this.accountsToCorrelate = []
 
         return uniqueAccounts
     }
@@ -789,6 +789,7 @@ export class ContextHelper {
             }
             const statuses = new Set(account.attributes!.statuses as string[])
             statuses.add('correlated')
+            statuses.delete('uncorrelated')
             account.attributes!.statuses = Array.from(statuses)
         } else {
             const statuses = new Set(account.attributes!.statuses as string[])
@@ -803,10 +804,10 @@ export class ContextHelper {
                 finalAccountIds.push(fusionAccountId)
                 if (identity) {
                     // Correlate the account with the identity
-                    const statuses = new Set(account.attributes!.statuses as string[])
-                    statuses.add('uncorrelated')
-                    statuses.delete('correlated')
-                    account.attributes!.statuses = Array.from(statuses)
+                    // const statuses = new Set(account.attributes!.statuses as string[])
+                    // statuses.add('uncorrelated')
+                    // statuses.delete('correlated')
+                    // account.attributes!.statuses = Array.from(statuses)
                     this.accountsToCorrelate.push({ identity: identity.id, account: fusionAccountId })
                 }
             }
