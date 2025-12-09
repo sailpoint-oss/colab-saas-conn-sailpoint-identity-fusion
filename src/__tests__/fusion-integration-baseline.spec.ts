@@ -17,6 +17,7 @@ import {
     createAccessRequest,
     waitForAccessRequestCompletion,
 } from './helpers/access-request-helper'
+import { cleanupIdentityMergingForms, getFormsByFilter } from './helpers/form-helper'
 
 env.config()
 
@@ -32,6 +33,11 @@ describe('Fusion Connector Baseline Integration Tests', () => {
     beforeAll(async () => {
         // Setup Fusion source (authenticate, find source, patch with test config)
         fusionSource = await setupFusionSource()
+
+        // Clean up any existing Identity Merging forms
+        const baseUrl = process.env.SAIL_BASE_URL!
+        console.log('Cleaning up Identity Merging forms before tests...')
+        await cleanupIdentityMergingForms(fusionSource.token, baseUrl)
 
         // Setup Airtable sources (primary and secondary)
         airtableSource = await setupAirtableSource('Fusion Integration Test Primary')
@@ -75,6 +81,7 @@ describe('Fusion Connector Baseline Integration Tests', () => {
         const timestamp = Date.now()
         const uniqueId = `test-user-${timestamp}`
         const testEmail = `test.user.${timestamp}@example.com`
+        let similarEmail = '' // Will be set when creating secondary account
 
         // Create test account in Airtable
         const record = await createTestAccount(airtableClient, {
@@ -238,7 +245,7 @@ describe('Fusion Connector Baseline Integration Tests', () => {
             const lastChar = localPart[localPart.length - 1]
             const newLastChar = lastChar === '1' ? '2' : '1'
             const modifiedLocalPart = localPart.slice(0, -1) + newLastChar
-            const similarEmail = `${modifiedLocalPart}@${domain}`
+            similarEmail = `${modifiedLocalPart}@${domain}`
             
             console.log(`Original email: ${originalEmail}`)
             console.log(`Similar email (off by 1 char): ${similarEmail}`)
@@ -285,6 +292,78 @@ describe('Fusion Connector Baseline Integration Tests', () => {
             
         } catch (error: any) {
             fail(`Secondary account creation and merge test failed: ${error}`)
+        }
+
+        // Step 4: Verify that the Identity Merging form was created
+        console.log('\n=== Verifying Identity Merging Form Creation ===')
+        
+        try {
+            const baseUrl = process.env.SAIL_BASE_URL!
+            
+            // Get all forms that start with "Identity Merging"
+            console.log('Fetching Identity Merging forms...')
+            const forms = await getFormsByFilter(fusionSource.token, baseUrl, 'name sw "Identity Merging"')
+            
+            // Verify exactly one form was created
+            expect(forms).toBeDefined()
+            expect(Array.isArray(forms)).toBe(true)
+            expect(forms.length).toBe(1)
+            console.log(`✓ Exactly one Identity Merging form was created`)
+            
+            // Verify form contents
+            const form = forms[0]
+            console.log('\n=== Identity Merging Form Details ===')
+            console.log(`Form ID: ${form.object.id}`)
+            console.log(`Form Name: ${form.object.name}`)
+            
+            // Verify formInput contains the expected email addresses
+            const formInput = form.object.formInput
+            expect(formInput).toBeDefined()
+            expect(Array.isArray(formInput)).toBe(true)
+            
+            // Find the original and similar email entries
+            const emailEntries = formInput.filter((input: any) => 
+                input.id.includes('.email') || input.id === 'newidentity.email'
+            )
+            
+            const emailDescriptions = emailEntries.map((e: any) => e.description)
+            console.log(`\n✓ Found email entries in form:`)
+            emailDescriptions.forEach((email: string) => console.log(`  - ${email}`))
+            
+            // Verify both emails are present in the form
+            const hasOriginalEmail = emailDescriptions.some((desc: string) => desc === testEmail)
+            const hasSimilarEmail = emailDescriptions.some((desc: string) => desc === similarEmail)
+            
+            expect(hasOriginalEmail).toBe(true)
+            expect(hasSimilarEmail).toBe(true)
+            console.log(`✓ Original email found in form: ${testEmail}`)
+            console.log(`✓ Similar email found in form: ${similarEmail}`)
+            
+            // Verify the score is present and >= 90
+            const scoreEntry = formInput.find((input: any) => input.id.includes('overall.score'))
+            expect(scoreEntry).toBeDefined()
+            const score = parseInt(scoreEntry.description, 10)
+            expect(score).toBeGreaterThanOrEqual(90)
+            console.log(`✓ Merge score is ${score} (>= 90)`)
+            
+            // Verify the threshold is 90
+            const thresholdEntry = formInput.find((input: any) => input.id.includes('overall.threshold'))
+            expect(thresholdEntry).toBeDefined()
+            const threshold = parseInt(thresholdEntry.description, 10)
+            expect(threshold).toBe(90)
+            console.log(`✓ Merge threshold is ${threshold}`)
+            
+            // Verify the source is correct
+            const sourceEntry = formInput.find((input: any) => input.id === 'source')
+            expect(sourceEntry).toBeDefined()
+            expect(sourceEntry.description).toBe('Fusion Integration Test Secondary')
+            console.log(`✓ Source is correct: ${sourceEntry.description}`)
+            
+            console.log('\nComplete Form Object:')
+            console.log(JSON.stringify(form, null, 2))
+            
+        } catch (error: any) {
+            fail(`Form verification failed: ${error}`)
         }
     })
 })

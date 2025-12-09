@@ -62,7 +62,7 @@ export function getFusionTestConfig(): FusionTestConfig {
             }
         ],
         global_merging_score: true,
-        merging_score: 50,
+        merging_score: 90,
         merging_isEnabled: true,
         merging_attributes: ['email'],
         merging_expirationDays: 5,
