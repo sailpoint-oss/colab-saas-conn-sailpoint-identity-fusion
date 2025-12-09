@@ -14,6 +14,7 @@ export interface FusionSourceInfo {
 }
 
 export interface FusionTestConfig {
+    resetProcessingFlag: boolean
     clientId: string
     clientSecret: string
     baseurl: string
@@ -50,17 +51,23 @@ export function getFusionTestConfig(): FusionTestConfig {
         cloudDisplayName: 'fusion-connector-integration-test',
         merging_map: [
             {
-                identity: 'email',
-                account: ['email', 'Email'],
-                uidOnly: true,
-            },
+                merging_score: null,
+                uidOnly: false,
+                identity: "email",
+                account: [
+                    "email",
+                    "Email"
+                ],
+                attributeMerge: "first"
+            }
         ],
         global_merging_score: true,
-        merging_score: 90,
+        merging_score: 50,
         merging_isEnabled: true,
         merging_attributes: ['email'],
         merging_expirationDays: 5,
         attributeMerge: 'first',
+        resetProcessingFlag: true,
         global_merging_identical: false,
         reset: true,
         uid_template: '#set($initial = $firstName.substring(0, 1))$initial$lastName$counter',
@@ -127,6 +134,11 @@ export async function updateFusionSourceConfig(
             op: 'add',
             path: '/connectorAttributes/clientId',
             value: fusionConfig.clientId,
+        },
+        {
+            op: 'add',
+            path: '/connectorAttributes/resetProcessingFlag',
+            value: fusionConfig.resetProcessingFlag,
         },
         {
             op: 'add',
