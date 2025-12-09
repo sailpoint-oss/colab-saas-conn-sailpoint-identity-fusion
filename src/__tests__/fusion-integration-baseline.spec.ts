@@ -29,6 +29,13 @@ describe('Fusion Connector Baseline Integration Tests', () => {
     let airtableClientSecondary: Airtable.Base
     const createdRecords: AirtableTestRecord[] = []
     const createdRecordsSecondary: AirtableTestRecord[] = []
+    
+    // Shared test data
+    let timestamp: number
+    let uniqueId: string
+    let testEmail: string
+    let similarEmail: string
+    let baselineAccount: any
 
     beforeAll(async () => {
         // Setup Fusion source (authenticate, find source, patch with test config)
@@ -76,12 +83,11 @@ describe('Fusion Connector Baseline Integration Tests', () => {
         await cleanupTestAccounts(airtableClientSecondary, createdRecordsSecondary)
     })
 
-    it('should create a baseline account and verify fusion connector properties (uniqueId, accounts, uuid, history)', async () => {
+    it('Step 1: should create a baseline account and verify fusion connector properties', async () => {
         // Generate unique test data
-        const timestamp = Date.now()
-        const uniqueId = `test-user-${timestamp}`
-        const testEmail = `test.user.${timestamp}@example.com`
-        let similarEmail = '' // Will be set when creating secondary account
+        timestamp = Date.now()
+        uniqueId = `test-user-${timestamp}`
+        testEmail = `test.user.${timestamp}@example.com`
 
         // Create test account in Airtable
         const record = await createTestAccount(airtableClient, {
@@ -172,11 +178,15 @@ describe('Fusion Connector Baseline Integration Tests', () => {
             console.log(`✓ history contains "Baseline account": ${history[0]}`)
 
             console.log(`All baseline verification checks passed for account ${uniqueId}`)
+            
+            // Store the account for use in later tests
+            baselineAccount = foundAccount
         } catch (error) {
             fail(`Account verification failed: ${error}`)
         }
+    })
 
-        // Step 2: Request access profile for philip.ellis user
+    it('Step 2: should request and complete access profile assignment', async () => {
         console.log('\n=== Starting Access Request Test ===')
         
         try {
@@ -229,8 +239,9 @@ describe('Fusion Connector Baseline Integration Tests', () => {
         } catch (error: any) {
             fail(`Access request test failed: ${error}`)
         }
+    })
 
-        // Step 3: Create second account in secondary Airtable base with similar email (off by one character)
+    it('Step 3: should create similar account in secondary base and trigger merge', async () => {
         console.log('\n=== Creating Second Account for Merge Testing ===')
         
         try {
@@ -293,8 +304,9 @@ describe('Fusion Connector Baseline Integration Tests', () => {
         } catch (error: any) {
             fail(`Secondary account creation and merge test failed: ${error}`)
         }
+    })
 
-        // Step 4: Verify that the Identity Merging form was created
+    it('Step 4: should verify Identity Merging form was created with correct values', async () => {
         console.log('\n=== Verifying Identity Merging Form Creation ===')
         
         try {
