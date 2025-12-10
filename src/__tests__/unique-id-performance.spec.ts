@@ -1,7 +1,6 @@
 import { buildUniqueID } from '../utils/unique'
 import { Account } from 'sailpoint-api-client'
 import { Config } from '../model/config'
-import { jest } from '@jest/globals'
 
 describe('buildUniqueID', () => {
     const mockConfig = {

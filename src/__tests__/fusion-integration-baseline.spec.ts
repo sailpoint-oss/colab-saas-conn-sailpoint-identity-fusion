@@ -233,9 +233,6 @@ describe('Fusion Connector Baseline Integration Tests', () => {
             expect(finalStatus[0].state).toBe('REQUEST_COMPLETED')
             console.log('✓ Access request completed successfully')
             
-            // Log the final status details
-            console.log('Final access request status:', JSON.stringify(finalStatus, null, 2))
-            
         } catch (error: any) {
             fail(`Access request test failed: ${error}`)
         }
@@ -371,8 +368,6 @@ describe('Fusion Connector Baseline Integration Tests', () => {
             expect(sourceEntry.description).toBe('Fusion Integration Test Secondary')
             console.log(`✓ Source is correct: ${sourceEntry.description}`)
             
-            console.log('\nComplete Form Object:')
-            console.log(JSON.stringify(form, null, 2))
             
         } catch (error: any) {
             fail(`Form verification failed: ${error}`)
