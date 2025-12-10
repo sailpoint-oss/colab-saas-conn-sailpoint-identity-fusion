@@ -134,7 +134,7 @@ export async function waitForAccessRequestCompletion(
     token: string,
     baseUrl: string,
     accessRequestId: string,
-    maxWaitTimeMs: number = 120000,
+    maxWaitTimeMs: number = 220000,
     pollIntervalMs: number = 5000
 ): Promise<any> {
     const startTime = Date.now()
