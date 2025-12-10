@@ -5,6 +5,7 @@ env:
     SAIL_CLIENT_ID: ${{ secrets.FUSION_CLIENT_ID }}
     SAIL_CLIENT_SECRET: ${{ secrets.FUSION_CLIENT_SECRET }}
     CLI_VERSION: '2.2.5'
+    STACK: 'identity-fusion-39'
 
 on:
     pull_request:
@@ -14,6 +15,10 @@ on:
         branches:
             - main # assuming you're using the 'main' branch; adjust if you use 'master' or another
     workflow_dispatch:
+
+concurrency:
+    group: fusion-connector-integration
+    cancel-in-progress: false
 
 jobs:
     build_connector:
@@ -41,16 +46,6 @@ jobs:
               run: |
                   echo "PACKAGE_VERSION=$(jq -r .version package.json)" >> $GITHUB_ENV
                   echo "CONNECTOR_NAME=$(jq -r .name package.json)" >> $GITHUB_ENV
-            - name: set env vars
-              run: |
-                  if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-                    echo "STACK=${{ env.CONNECTOR_NAME }}" >> $GITHUB_ENV
-                  elif [[ ${{ github.ref }} == refs/pull/* ]]; then
-                    PR_NUMBER=$(echo ${{ github.ref }} | awk -F '/' '{print $3}')
-                    echo "STACK=${{ env.CONNECTOR_NAME }}-$PR_NUMBER" >> $GITHUB_ENV
-                  else
-                    echo "STACK=${{ env.CONNECTOR_NAME }}-staging" >> $GITHUB_ENV
-                  fi
             - name: Download and install sailpoint-cli
               run: |
                 set -e
@@ -100,13 +95,9 @@ jobs:
                 fi
                 echo "SailPoint configuration validated successfully"
                 echo "Base URL: $SAIL_BASE_URL"
+                echo "Using connector: ${{ env.STACK }}"
 
-            - name: Use sailpoint-cli to create new connector
-              run: |
-                set -e
-                sail conn create "${{ env.STACK }}"
-
-            - name: Use sailpoint-cli to upload new connector
+            - name: Use sailpoint-cli to upload connector to existing stack
               run: |
                 set -e
                 sail conn upload -c "${{ env.STACK }}" -f ./dist/${{ env.CONNECTOR_NAME }}-${{ env.PACKAGE_VERSION }}.zip
@@ -114,6 +105,10 @@ jobs:
             - name: Run integration tests for connector
               if: github.event_name == 'pull_request'
               id: integrationTests
+              env:
+                AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+                AIRTABLE_PRIMARY_BASE: ${{ secrets.AIRTABLE_PRIMARY_BASE }}
+                AIRTABLE_SECONDARY_BASE: ${{ secrets.AIRTABLE_SECONDARY_BASE }}
               run: |
                 npm run test
             # deploy connector if push to main branch
