@@ -54,4 +54,5 @@ export interface Config {
     batchProcessing?: boolean
     batchSize?: number
     resetProcessingFlag?: boolean
+    referenceTransformName?: string
 }
