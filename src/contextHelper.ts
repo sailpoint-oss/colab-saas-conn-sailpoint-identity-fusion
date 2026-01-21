@@ -37,6 +37,7 @@ import {
     stringifyScore,
 } from './utils'
 import {
+    ACCOUNT_MODIFICATION_THRESHOLD,
     CONCURRENCY,
     EDITFORMNAME,
     NONAGGREGABLE_TYPES,
@@ -59,8 +60,7 @@ import { actions } from './data/action'
 import { lig3 } from './utils/lig'
 import { SourceIdentityAttribute } from './model/source-identity-attribute'
 import { batch } from './utils/batch'
-import path from 'path'
-import { get } from 'http'
+import { MinimalIdentity } from './model/identity'
 
 export class ContextHelper {
     private c: string = 'ContextHelper'
@@ -171,7 +171,7 @@ export class ContextHelper {
         }
 
         // Set process lock if requested (typically for account aggregation)
-        if (setLock) {
+        if (setLock && !lazy) {
             await this.setProcessLock()
         }
 
@@ -466,7 +466,16 @@ export class ContextHelper {
     }
 
     async getAccountByIdentity(identity: IdentityDocument): Promise<Account | undefined> {
-        return await this.client.getAccountByIdentityID(identity.id, identity.attributes!.cloudAuthoritativeSource)
+        const sourceId = identity.attributes!.cloudAuthoritativeSource
+        if (sourceId) {
+            return await this.client.getAccountByIdentityID(identity.id, sourceId)
+        } else {
+            const id = identity.accounts?.[0]?.id
+            if (!id) {
+                return undefined
+            }
+            return await this.client.getAccount(id)
+        }
     }
 
     getFusionAccountByIdentity(identity: IdentityDocument): Account | undefined {
@@ -671,7 +680,7 @@ export class ContextHelper {
         }
     }
 
-    private async listSourceAccounts(account: Account): Promise<Account[]> {
+    private async listSourceAccountsByAccount(account: Account): Promise<Account[]> {
         let sourceAccounts: Account[] = []
 
         if (this.initiated === 'full') {
@@ -686,12 +695,12 @@ export class ContextHelper {
                 }
             }
         } else {
-            // create a list of only the source accoutns that tie back to this account
+            // create a list of only the source accounts that tie back to this account
             const currentAccounts = await this.client.getAccountsByIdentity(account.identityId!)
             const currentAccountIds = currentAccounts.map((x) => x.id!)
             for (const sourceAccount of account.attributes!.accounts) {
                 if (!currentAccountIds.includes(sourceAccount)) {
-                    const accountNative = await this.client.getAccount(sourceAccount)
+                    const accountNative = await this.getSourceAccount(sourceAccount)
                     if (accountNative) {
                         currentAccounts.push(accountNative)
                     }
@@ -729,68 +738,85 @@ export class ContextHelper {
         }
     }
 
+    async getMinimalIdentity(identityId: string): Promise<MinimalIdentity | undefined> {
+        if (this.initiated === 'full') {
+            const identity = this.identitiesById.get(identityId)
+            if (identity) {
+                return {
+                    id: identity.id,
+                    accounts: identity.accounts?.map((a) => a.id!) ?? [],
+                }
+            }
+        } else {
+            const identity = await this.client.getIdentity(identityId)
+            if (identity) {
+                const accounts = await this.client.getAccountsByIdentity(identityId)
+                return {
+                    id: identity.id!,
+                    accounts: accounts.map((a) => a.id!) ?? [],
+                }
+            }
+        }
+    }
+
     async refreshUniqueAccount(account: Account): Promise<UniqueAccount> {
         const c = 'refreshUniqueAccount'
-
         let needsRefresh = false
         let accountsChanged = false
-
-        const sourceAccounts = await this.listSourceAccounts(account)
-        const currentAccountIds = new Set(account.attributes!.accounts as string[])
-        const newAccountIds: string[] = []
-        for (const sourceAccount of sourceAccounts) {
-            if (!currentAccountIds.has(sourceAccount.id!)) {
-                logger.debug(lm(`Source accounts have changed. Refreshing account.`, c, 1))
-                accountsChanged = true
-                needsRefresh = true
-            }
-            newAccountIds.push(sourceAccount.id!)
-            currentAccountIds.delete(sourceAccount.id!)
-        }
-
-        const identity = await this.getAccountIdentity(account)
+        const sourceAccounts = await this.listSourceAccountsByAccount(account)
+        const fusionAccountIds = new Set(account.attributes!.accounts as string[])
+        const finalAccountIds: string[] = []
+        const identity = await this.getMinimalIdentity(account.identityId!)
         if (identity) {
-            // Correlate uncorrelated accounts
-            const correlatedAccounts = identity.accounts ?? []
-            const correlatedAccountIds = correlatedAccounts.map((x) => x.id!)
-            for (const newAccountId of newAccountIds) {
-                if (!correlatedAccountIds.includes(newAccountId)) {
-                    this.accountsToCorrelate.push({ identity: identity.id, account: newAccountId })
-                    accountsChanged = true
+            const correlatedAccountIds = identity.accounts ?? []
+            for (const correlatedAccountId of correlatedAccountIds) {
+                const newSourceAccount = await this.getSourceAccount(correlatedAccountId)
+                if (newSourceAccount) {
+                    if (!fusionAccountIds.has(correlatedAccountId)) {
+                        accountsChanged = true
+                    }
+                    finalAccountIds.push(correlatedAccountId)
+                    fusionAccountIds.delete(correlatedAccountId)
                 }
-            }
-
-            if (accountsChanged) {
-                const isEdited = account.attributes!.statuses.includes('edited')
-                if (isEdited) {
-                    deleteArrayItem(account.attributes!.statuses, 'edited')
-                    const message = datedMessage(`Automatically unedited by change in contributing accounts`)
-                    account.attributes!.history.push(message)
-                }
-                logger.debug(lm(`Accounts have changed. Refreshing account.`, c, 1))
-                needsRefresh = true
             }
         }
 
-        account.attributes!.accounts = newAccountIds
-        if (newAccountIds.length > 0 && !account.attributes!.statuses.includes('edited')) {
-            for (const currentAccount of sourceAccounts) {
-                if (!needsRefresh) {
-                    // This is affected by a double refresh due to the change produced by the manual correlation
-                    if (account.modified && currentAccount.modified) {
-                        const accountModified = new Date(account.modified).getTime()
-                        const sourceAccountModified = new Date(currentAccount.modified).getTime()
-                        if (accountModified < sourceAccountModified) {
-                            logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
-                            needsRefresh = true
-                        }
+        for (const fusionAccountId of fusionAccountIds) {
+            // Still valid
+            const sourceAccount = await this.getSourceAccount(fusionAccountId)
+            if (sourceAccount) {
+                finalAccountIds.push(fusionAccountId)
+                if (identity) {
+                    // Correlate the account with the identity
+                    this.accountsToCorrelate.push({ identity: identity.id, account: fusionAccountId })
+                }
+            }
+        }
+        if (accountsChanged) {
+            const isEdited = account.attributes!.statuses.includes('edited')
+            if (isEdited) {
+                deleteArrayItem(account.attributes!.statuses, 'edited')
+                const message = datedMessage(`Automatically unedited by change in contributing accounts`)
+                account.attributes!.history.push(message)
+            }
+            logger.debug(lm(`Accounts have changed. Refreshing account.`, c, 1))
+            needsRefresh = true
+        }
+        account.attributes!.accounts = finalAccountIds
+        if (finalAccountIds.length > 0 && !account.attributes!.statuses.includes('edited')) {
+            for (const sourceAccount of sourceAccounts) {
+                if (needsRefresh) break
+                if (account.modified && sourceAccount.modified) {
+                    const accountModified = new Date(account.modified).getTime()
+                    const sourceAccountModified = new Date(sourceAccount.modified).getTime()
+                    if (accountModified < sourceAccountModified - ACCOUNT_MODIFICATION_THRESHOLD) {
+                        logger.debug(lm(`Account ${account.id} has changed. Refreshing account.`, c, 1))
+                        needsRefresh = true
                     }
                 }
             }
         }
-
         const schema = await this.getSchema()
-
         try {
             if (needsRefresh) {
                 logger.debug(lm(`Refreshing ${account.attributes!.uniqueID} account`, c, 1))
@@ -799,9 +825,7 @@ export class ContextHelper {
         } catch (error) {
             logger.error(error as string)
         }
-
         const uniqueAccount = new UniqueAccount(account, schema)
-
         return uniqueAccount
     }
 
@@ -912,7 +936,11 @@ export class ContextHelper {
         const fusionAccount = (await this.getFusionAccount(id)) as Account
         const identity = (await this.getIdentityById(fusionAccount.identityId!)) as IdentityDocument
         const authoritativeAccounts = await this.listAuthoritativeAccounts()
-        const pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
+        let pendingAccounts = authoritativeAccounts.filter((x) => x.uncorrelated === true)
+        if (this.config.batchProcessing && this.config.batchSize!) {
+            logger.info(`Processing ${this.config.batchSize!} accounts at a time.`)
+            pendingAccounts = pendingAccounts.slice(0, this.config.batchSize!)
+        }
         const analysis = await Promise.all(pendingAccounts.map((x) => this.analyzeUncorrelatedAccount(x)))
 
         const email = new ReportEmail(analysis, this.config.merging_attributes, identity)
@@ -925,7 +953,7 @@ export class ContextHelper {
         logger.debug(lm(`Processing ${account.name} (${account.id})`, c, 1))
         let uniqueID: string
 
-        const uniqueAccount = account
+        const uniqueAccount = normalizeAccountAttributes(account, this.config.merging_map)
 
         uniqueAccount.attributes!.accounts = [account.id]
         if (status === 'requested' || !status) {
@@ -961,7 +989,7 @@ export class ContextHelper {
     async createUniqueAccount(uniqueID: string, status: string): Promise<Account> {
         const identity = (await this.getIdentityByUID(uniqueID)) as IdentityDocument
         const originAccount = (await this.getAccountByIdentity(identity)) as Account
-        originAccount.attributes = { ...originAccount.attributes, ...identity.attributes }
+        originAccount.attributes = { ...(originAccount.attributes ?? {}), ...identity.attributes }
         const message = 'Created from access request'
         const uniqueAccount = await this.buildUniqueAccount(originAccount, status, message)
 
@@ -991,10 +1019,13 @@ export class ContextHelper {
             account.attributes!.accounts ??= []
             account.attributes!.actions ??= ['fusion']
             account.attributes!.reviews ??= []
-            account.modified = new Date(0).toISOString()
             const uniqueAccount = await this.refreshUniqueAccount(account)
 
-            await this.client.batchCorrelateAccounts(this.accountsToCorrelate, CONCURRENCY.CORRELATE_ACCOUNTS)
+            if (this.accountsToCorrelate.length > 0) {
+                const { identity, account } = this.accountsToCorrelate.shift()!
+                await this.client.correlateAccount(identity, account)
+            }
+
             return uniqueAccount
         } else {
             throw new ConnectorError('Account not found', ConnectorErrorType.NotFound)
@@ -1316,6 +1347,7 @@ export class ContextHelper {
                         1
                     )
                     logger.info(msg)
+                    // TODO: move to batch
                     await this.correlateAccount(identicalMatch.id, uncorrelatedAccount.id!)
                 }
                 // Check if similar match exists

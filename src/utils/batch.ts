@@ -39,7 +39,7 @@ export async function batchRetry<T, R>(
 ) {
     let processed: number = 0
     const total: number = items.length
-    let results: R[] = []
+    const results: R[] = []
 
     for (let i = 0; i < items.length; i += batchSize) {
         const batchStartTime = performance.now()
@@ -53,7 +53,7 @@ export async function batchRetry<T, R>(
         const batchEndTime = performance.now()
         const batchDuration = batchEndTime - batchStartTime
 
-        let delay = 5
+        const delay = 5
         // Opens the event loop to ensure keepAlive is sent.
         await new Promise((resolve) => setTimeout(resolve, delay))
 
