@@ -376,7 +376,7 @@ export class ContextHelper {
             // make sure attributes exists before adding to map
             if (x.attributes) {
                 this.identitiesById.set(x.id, x)
-                if (this.config.uid_scope === 'platform') this.uniqueIdGenerator.ids.add(x.attributes!.uid)
+                if (this.config.uid_scope === 'platform' && x.attributes?.uid) this.uniqueIdGenerator.ids.add(x.attributes!.uid)
             }
         })
     }
