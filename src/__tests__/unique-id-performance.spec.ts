@@ -1,4 +1,4 @@
-import { buildUniqueID } from '../utils/unique'
+import { UniqueIdentifierGenerator } from '../utils/unique'
 import { Account } from 'sailpoint-api-client'
 import { Config } from '../model/config'
 import { jest } from '@jest/globals'
@@ -29,21 +29,21 @@ describe('buildUniqueID', () => {
         jest.spyOn(console, 'debug').mockImplementation(() => {})
 
         // Create a set with 100k duplicate IDs to simulate existing IDs
-        const currentIDs = new Set<string>()
+        const uniqueIdGenerator = new UniqueIdentifierGenerator()
 
         // First create and add the base ID that will match initially
-        currentIDs.add('jdoe')
+        uniqueIdGenerator.ids.add('jdoe')
 
         // Then add 100k more IDs with counters to force iteration
         for (let i = 1; i <= 100000; i++) {
             const paddedCounter = '0'.repeat(Math.max(0, mockConfig.uid_digits - i.toString().length)) + i
-            currentIDs.add(`jdoe${paddedCounter}`)
+            uniqueIdGenerator.ids.add(`jdoe${paddedCounter}`)
         }
 
         const startTime = Date.now()
 
         // Run the function that should have to try 100,001 times before finding a unique ID
-        const uniqueID = await buildUniqueID(mockAccount, currentIDs, mockConfig, true)
+        const uniqueID = await uniqueIdGenerator.buildUniqueID(mockAccount, mockConfig, true)
 
         const endTime = Date.now()
         const duration = endTime - startTime
@@ -64,29 +64,29 @@ describe('buildUniqueID', () => {
         jest.spyOn(console, 'debug').mockImplementation(() => {})
 
         // Create a set with duplicate IDs to simulate existing IDs
-        const currentIDs = new Set<string>()
+        const uniqueIdGenerator = new UniqueIdentifierGenerator()
 
         // First create and add the base ID that will match initially
-        currentIDs.add('jdoe')
+        uniqueIdGenerator.ids.add('jdoe')
 
         // Add 1000 IDs with counters
         for (let i = 1; i <= 1000; i++) {
             const paddedCounter = '0'.repeat(Math.max(0, mockConfig.uid_digits - i.toString().length)) + i
-            currentIDs.add(`jdoe${paddedCounter}`)
+            uniqueIdGenerator.ids.add(`jdoe${paddedCounter}`)
         }
 
         // First call - should be slower as it needs to find the max counter
         const startTime1 = Date.now()
-        const uniqueID1 = await buildUniqueID(mockAccount, currentIDs, mockConfig, true)
+        const uniqueID1 = await uniqueIdGenerator.buildUniqueID(mockAccount, mockConfig, true)
         const endTime1 = Date.now()
         const duration1 = endTime1 - startTime1
 
         // Add the new ID to our set
-        currentIDs.add(uniqueID1)
+        uniqueIdGenerator.ids.add(uniqueID1)
 
         // Second call with the same baseId - should be much faster due to caching
         const startTime2 = Date.now()
-        const uniqueID2 = await buildUniqueID(mockAccount, currentIDs, mockConfig, true)
+        const uniqueID2 = await uniqueIdGenerator.buildUniqueID(mockAccount, mockConfig, true)
         const endTime2 = Date.now()
         const duration2 = endTime2 - startTime2
 
