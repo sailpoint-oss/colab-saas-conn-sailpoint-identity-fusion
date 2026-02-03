@@ -1,9 +1,13 @@
-import { buildUniqueID } from '../utils/unique'
+import { buildUniqueID, clearUniqueIDCache } from '../utils/unique'
 import { Account } from 'sailpoint-api-client'
 import { Config } from '../model/config'
-import { jest } from '@jest/globals'
 
 describe('buildUniqueID', () => {
+    beforeEach(() => {
+        // Clear the cache before each test to ensure test isolation
+        clearUniqueIDCache()
+    })
+
     const mockConfig = {
         uid_template: '#set($initial = $firstname.substring(0, 1))$initial$lastname$counter',
         uid_normalize: true,

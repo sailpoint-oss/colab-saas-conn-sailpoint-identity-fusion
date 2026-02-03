@@ -17,6 +17,12 @@ const maxCounterCache = new Map<string, number>()
 
 // Cache for compiled VLT templates to avoid re-parsing and re-compilation
 const templateCache = new Map<string, any>()
+
+// Function to clear caches (useful for testing)
+export const clearUniqueIDCache = () => {
+    maxCounterCache.clear()
+    templateCache.clear()
+}
 export const buildUniqueID = async (
     account: Account,
     currentIDs: Set<string>,
