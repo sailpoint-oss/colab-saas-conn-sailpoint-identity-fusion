@@ -1,5 +1,4 @@
 import {
-    AttributeChangeOp,
     ConnectorError,
     ConnectorErrorType,
     StdAccountCreateHandler,
@@ -10,675 +9,291 @@ import {
     StdAccountReadHandler,
     StdAccountUpdateHandler,
     StdEntitlementListHandler,
-    StdEntitlementListOutput,
     StdTestConnectionHandler,
     createConnector,
     logger,
 } from '@sailpoint/connector-sdk'
-import { Account, IdentityDocument } from 'sailpoint-api-client'
-import { EditEmail, ReviewEmail } from './model/email'
-import {
-    buildReviewFromFormInstance,
-    datedMessage,
-    getFormValue,
-    opLog,
-    deleteArrayItem,
-    pushNewItem,
-    safeReadConfig,
-} from './utils'
+import { safeReadConfig } from './data/config'
 
-import { ContextHelper } from './contextHelper'
-import { PROCESSINGWAIT } from './constants'
-import { UniqueAccount } from './model/account'
-import { Config } from './model/config'
-import { UniqueForm } from './model/form'
-import { batch } from './utils/batch'
-import { CONCURRENCY } from './constants'
+import { FusionConfig } from './model/config'
+import { ServiceRegistry } from './services/serviceRegistry'
+import { testConnection } from './operations/testConnection'
+import { accountList } from './operations/accountList'
+import { accountRead } from './operations/accountRead'
+import { accountCreate } from './operations/accountCreate'
+import { accountUpdate } from './operations/accountUpdate'
+import { accountEnable } from './operations/accountEnable'
+import { accountDisable } from './operations/accountDisable'
+import { entitlementList } from './operations/entitlementList'
+import { accountDiscoverSchema } from './operations/accountDiscoverSchema'
+import { isProxyMode, isProxyService, proxy } from './utils/proxy'
 
 // Connector must be exported as module property named connector
 export const connector = async () => {
-    const config: Config = await safeReadConfig()
+    const config: FusionConfig = await safeReadConfig()
     //==============================================================================================================
 
-    //TODO improve
     const stdTest: StdTestConnectionHandler = async (context, input, res) => {
-        opLog(config, input)
+        try {
+            const serviceRegistry = new ServiceRegistry(config, context)
+            const isCustom = context.testConnection !== undefined
+            const isProxy = isProxyMode(config)
+            const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
-        const ctx = new ContextHelper(config)
-        await ctx.init(undefined, true)
+            logger.info(`Running in ${runMode} mode`)
 
-        const source = ctx.getSource()
-        const sources = ctx.listSources()
-
-        if (!source) {
-            throw new ConnectorError('Unable to connect to IdentityNow! Please check your configuration')
+            switch (runMode) {
+                case 'custom':
+                    await context.testConnection(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await testConnection(serviceRegistry, input, res)
+            }
+        } catch (error) {
+            logger.error(error)
+            throw new ConnectorError('Failed to test connection', ConnectorErrorType.Generic)
+        } finally {
+            ServiceRegistry.clear()
         }
-
-        if (sources.length < config.sources.length) {
-            throw new ConnectorError('Unable to find all sources. Please check your configuration')
-        }
-
-        logger.info('Test successful!')
-        res.send({})
     }
 
     const stdAccountList: StdAccountListHandler = async (context, input, res): Promise<void> => {
-        // console.time('stdAccountList')
-        //Keepalive
-        const interval = setInterval(() => {
+        const isCustom = context.accountList !== undefined
+        const isProxy = isProxyMode(config)
+        const isProxyServer = isProxyService(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
+        const interval = isProxyServer ? undefined : setInterval(() => {
             res.keepAlive()
-        }, PROCESSINGWAIT)
-
-        const ctx = new ContextHelper(config)
-        let processingLockSet = false
-        try {
-            opLog(config, input)
-
-            //Compiling info
-            logger.info('Loading data.')
-            // console.timeLog('stdAccountList', 'init')
-            // The init method will check and set the processing lock
-            await ctx.init(input.schema, false, true)
-            processingLockSet = true
-
-            //Resetting accounts
-            if (config.reset) return
-            const processedAccountIDs = ctx.listProcessedAccountIDs()
-            let pendingAccounts = ctx
-                .listAuthoritativeAccounts()
-                .filter((x) => !processedAccountIDs.includes(x.id!) && x.uncorrelated === true)
-
-            if (config.batchProcessing && config.batchSize!) {
-                logger.info(`Processing ${config.batchSize!} accounts at a time.`)
-                pendingAccounts = pendingAccounts.slice(0, config.batchSize!)
-            }
-
-            if (ctx.isMergingEnabled() && !ctx.isFirstRun()) {
-                //PROCESS FORM INSTANCES
-                logger.info('Processing existing unique forms.')
-                const forms = ctx.listUniqueForms()
-                forms: for (const currentForm of forms) {
-                    let cancelled = true
-                    let finished = false
-                    const accountID = getFormValue(currentForm, 'account')
-                    const instances = ctx.listUniqueFormInstancesByForm(currentForm)
-                    formInstances: for (const currentFormInstance of instances) {
-                        logger.debug(`Processing form instance ${currentForm.name} (${currentFormInstance.id}).`)
-                        const formName = currentForm.name
-                        let uniqueAccount: Account | undefined
-
-                        switch (currentFormInstance.state) {
-                            case 'COMPLETED':
-                                const { decision, account, message } =
-                                    await ctx.processUniqueFormInstance(currentFormInstance)
-                                logger.debug(`Result: ${message}.`)
-
-                                const identityMatch = await ctx.getIdentityByUID(decision)
-
-                                if (identityMatch) {
-                                    logger.debug(`Updating existing account for ${decision}.`)
-                                    const uncorrelatedAccount = (await ctx.getAccount(accountID)) as Account
-                                    const currentAccount = ctx.getFusionAccountByIdentity(identityMatch)
-                                    if (currentAccount) {
-                                        const msg = datedMessage(message, uncorrelatedAccount)
-                                        const attributes = currentAccount.attributes!
-                                        attributes.accounts.push(account)
-                                        attributes.history.push(msg)
-                                        pushNewItem('manual', attributes.statuses)
-                                        deleteArrayItem(attributes!.statuses, 'edited')
-                                    } else {
-                                        const msg = `Correlating ${uncorrelatedAccount.name} account to non-Fusion identity ${identityMatch.displayName}`
-                                        logger.info(msg)
-                                        await ctx.correlateAccount(identityMatch.id, uncorrelatedAccount.id!)
-                                    }
-                                } else {
-                                    logger.debug(`Creating new unique account.`)
-                                    const pendingAccount = pendingAccounts.find((x) => x.id === account) as Account
-
-                                    try {
-                                        uniqueAccount = await ctx.buildUniqueAccount(
-                                            pendingAccount,
-                                            'authorized',
-                                            message
-                                        )
-                                        const formData = currentFormInstance.formData!
-                                        delete formData.identities
-                                        uniqueAccount.attributes = { ...uniqueAccount.attributes, ...formData }
-                                    } catch (e) {
-                                        ctx.handleError(e)
-                                    }
-                                }
-
-                                finished = true
-                                ctx.deleteUniqueFormInstance(currentFormInstance)
-                                break formInstances
-
-                            case 'CANCELLED':
-                                logger.debug(`${currentForm.name} (${currentFormInstance.id}) was cancelled.`)
-                                ctx.deleteUniqueFormInstance(currentFormInstance)
-                                break
-
-                            default:
-                                cancelled = false
-                                logger.debug(`No decision made yet for ${formName} instance.`)
-                        }
-                    }
-
-                    pendingAccounts = pendingAccounts.filter((x) => x.id !== accountID)
-
-                    if (finished || cancelled) {
-                        try {
-                            logger.info(`Deleting form ${currentForm.name}.`)
-                            await ctx.deleteUniqueForm(currentForm)
-                        } catch (e) {
-                            const error = `Error deleting form with ID ${currentForm.name}`
-                            ctx.handleError(error)
-                        }
-                    }
-                }
-            }
-            // console.timeLog('stdAccountList', 'process form instances')
-
-            //PROCESS EXISTING IDENTITIES/CREATE BASELINE
-            logger.info('Processing existing identities.')
-            const currentIdentityIDs = ctx.listCurrentIdentityIDs()
-            //Process correlated accounts not processed yet
-            const correlatedAccounts = pendingAccounts.filter(
-                (x) => x.uncorrelated === false && !currentIdentityIDs.includes(x.identityId!)
-            )
-            for (const correlatedAccount of correlatedAccounts) {
-                try {
-                    const message = 'Baseline account'
-                    const uniqueAccount = await ctx.buildUniqueAccount(correlatedAccount, 'baseline', message)
-                } catch (e) {
-                    ctx.handleError(e)
-                }
-            }
-            pendingAccounts = pendingAccounts.filter((x) => x.uncorrelated === true)
-            // console.timeLog('stdAccountList', 'correlated accounts')
-
-            //CREATE BASELINE
-            if (ctx.isFirstRun()) {
-                //First run
-                logger.info('First run. Creating baseline.')
-                for (const uncorrelatedAccount of pendingAccounts) {
-                    try {
-                        const message = 'Baseline account'
-                        const uniqueAccount = await ctx.buildUniqueAccount(uncorrelatedAccount, 'baseline', message)
-                    } catch (e) {
-                        ctx.handleError(e)
-                    }
-                }
-                pendingAccounts = []
-            }
-            // console.timeLog('stdAccountList', 'baseline')
-
-            //PROCESS UNCORRELATED ACCOUNTS
-            logger.info(`Processing ${pendingAccounts.length} uncorrelated accounts.`)
-            const reviewerIDs = ctx.listAllReviewerIDs()
-            // Batch the uncorrelated account processing
-            const uniqueForms = new Map<string, UniqueForm>()
-            await batch(
-                pendingAccounts,
-                async (uncorrelatedAccount) => {
-                    try {
-                        const uniqueForm = await ctx.processUncorrelatedAccount(uncorrelatedAccount)
-                        if (uniqueForm && reviewerIDs.length > 0) {
-                            logger.debug(`Creating merging form`)
-                            uniqueForms.set(uniqueForm.name, uniqueForm)
-                        }
-                    } catch (e) {
-                        ctx.handleError(e)
-                    }
-                },
-                CONCURRENCY.UNCORRELATED_ACCOUNTS,
-                (processed: number, total: number) =>
-                    logger.info(`Processed ${processed} of ${total} uncorrelated accounts...`)
-            )
-            // Moved out to process Web Requests in parallel.
-            await ctx.createUniqueForms(uniqueForms)
-
-            // console.timeLog('stdAccountList', 'uncorrelated accounts')
-
-            if (await ctx.isMergingEnabled()) {
-                //PROCESS FORMS
-                const forms = await ctx.listUniqueForms()
-                logger.debug(`Checking unique form instances exist`)
-                for (const form of forms) {
-                    const sourceName = getFormValue(form, 'source')
-                    const reviewerIDs = await ctx.listReviewerIDs(sourceName)
-
-                    for (const reviewerID of reviewerIDs) {
-                        if (ctx.isSourceReviewer(sourceName, reviewerID)) {
-                            const reviewer = (await ctx.getIdentityById(reviewerID)) as IdentityDocument
-                            let currentFormInstance = ctx.getUniqueFormInstanceByReviewerID(form, reviewerID)
-
-                            if (!currentFormInstance) {
-                                currentFormInstance = await ctx.createUniqueFormInstance(form, reviewerID)
-                                logger.info(
-                                    `Form URL for ${reviewer.attributes!.uid}: ${currentFormInstance.standAloneFormUrl}`
-                                )
-                                // Send notifications
-                                logger.info(`Sending email notifications for ${form.name}`)
-                                const email = new ReviewEmail(reviewer, form.name!, currentFormInstance)
-                                await ctx.sendEmail(email)
-                            }
-                        }
-                    }
-                }
-                // console.timeLog('stdAccountList', 'process forms')
-
-                //PROCESS REVIEWERS
-                logger.info('Processing reviewers.')
-                for (const reviewerID of reviewerIDs) {
-                    try {
-                        const reviewer = (await ctx.getIdentityById(reviewerID)) as IdentityDocument
-                        const reviewerAccount = ctx.getIdentityAccount(reviewer)!
-                        reviewerAccount.attributes!.reviews = []
-                        for (const instance of ctx.listUniqueFormInstancesByReviewerID(reviewerID)) {
-                            const form = ctx.getUniqueFormByID(instance.formDefinitionId!)
-                            if (form) {
-                                const review = buildReviewFromFormInstance(instance)
-                                reviewerAccount.attributes!.reviews.push(review)
-                            }
-                        }
-                    } catch (error) {
-                        ctx.handleError(error)
-                    }
-                }
-            }
-            // console.timeLog('stdAccountList', 'process reviewers')
-
-            ctx.releaseUniqueFormData()
-
-            //PROCESS EDIT FORM INSTANCES
-            const forms = ctx.listEditForms()
-            logger.info('Processing existing edit forms.')
-            forms: for (const currentForm of forms) {
-                let cancelled = true
-                let finished = false
-                const accountID = getFormValue(currentForm, 'account.id')
-                const account = (await ctx.getFusionAccount(accountID)) as Account
-                const instances = ctx.listEditFormInstancesByForm(currentForm)
-                formInstances: for (const currentFormInstance of instances) {
-                    logger.debug(`Processing form instance ${currentForm.name} (${currentFormInstance.id}).`)
-                    const formName = currentForm.name
-
-                    switch (currentFormInstance.state) {
-                        case 'COMPLETED':
-                            //TODO
-                            ctx.processEditFormInstanceEdits(currentFormInstance, account)
-                            const reviewer = await ctx.getIdentityById(currentFormInstance.recipients![0].id!)
-                            pushNewItem('edited', account.attributes!.statuses)
-                            const message = datedMessage(`Edited by ${reviewer?.displayName}`)
-                            account.attributes!.history.push(message)
-
-                            finished = true
-                            break formInstances
-
-                        case 'CANCELLED':
-                            logger.debug(`${currentForm.name} (${currentFormInstance.id}) was cancelled.`)
-                            break
-
-                        default:
-                            cancelled = false
-                            logger.debug(`No changes made yet for ${formName} instance.`)
-                    }
-                }
-
-                if (finished || cancelled) {
-                    try {
-                        logger.info(`Deleting form ${currentForm.name}.`)
-                        await ctx.deleteEditForm(currentForm)
-                    } catch (e) {
-                        const error = `Error deleting form with ID ${currentForm.name}`
-                        ctx.handleError(error)
-                    }
-                }
-            }
-            // console.timeLog('stdAccountList', 'process edit forms')
-
-            // ctx.releaseFormData()
-            ctx.releaseEditFormData()
-
-            //BUILD RESULTING ACCOUNTS
-            logger.info('Sending accounts.')
-            await ctx.listAndSendUniqueAccounts(res)
-        } finally {
-            clearInterval(interval)
-
-            // Release processing lock if it was set
-            if (processingLockSet) {
-                await ctx.releaseProcessLock()
-            }
-        }
-
-        ctx.logErrors(context, input)
-        // console.timeEnd('stdAccountList')
-    }
-
-    const stdAccountRead: StdAccountReadHandler = async (context, input, res) => {
-        opLog(config, input)
-        logger.info(`Reading ${input.identity} account.`)
-        if (config.reset) return
-
-        //Keepalive
-        const interval = setInterval(() => {
-            res.keepAlive()
-        }, PROCESSINGWAIT)
-
-        const ctx = new ContextHelper(config)
-        await ctx.init(input.schema, true)
+        }, config.processingWait)
 
         try {
-            const account = await ctx.buildUniqueAccountFromID(input.identity)
-            logger.info({ account })
-            res.send(account)
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running accountList in ${runMode} mode`)
+
+            switch (runMode) {
+                case 'custom':
+                    await context.accountList(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountList(serviceRegistry, input, res)
+            }
         } catch (error) {
             logger.error(error)
+            throw new ConnectorError('Failed to aggregate accounts', ConnectorErrorType.Generic)
         } finally {
-            clearInterval(interval)
+            ServiceRegistry.clear()
+            if (interval) {
+                clearInterval(interval)
+            }
         }
+    }
 
-        ctx.logErrors(context, input)
+    const stdAccountRead: StdAccountReadHandler = async (context, input, res): Promise<void> => {
+        const isCustom = context.accountRead !== undefined
+        const isProxy = isProxyMode(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
+
+        try {
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running accountRead in ${runMode} mode`)
+            switch (runMode) {
+                case 'custom':
+                    await context.accountRead(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountRead(serviceRegistry, input, res)
+            }
+        } catch (error) {
+            logger.error(error)
+            throw new ConnectorError(`Failed to read account ${input.identity}`, ConnectorErrorType.Generic)
+        } finally {
+            ServiceRegistry.clear()
+        }
     }
 
     const stdAccountCreate: StdAccountCreateHandler = async (context, input, res) => {
-        const entitlementSelectionError = `Only action source reviewer and report entitlements can be requested on account creation`
-        opLog(config, input)
+        const isCustom = context.accountCreate !== undefined
+        const isProxy = isProxyMode(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
-        if (input.attributes.statuses) {
-            throw new ConnectorError(entitlementSelectionError, ConnectorErrorType.Generic)
-        }
+        try {
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running accountCreate in ${runMode} mode`)
 
-        const ctx = new ContextHelper(config)
-
-        const nativeIdentity = input.attributes.uniqueID ?? input.identity
-        const actions: string[] = [].concat(input.attributes.actions)
-        let uniqueAccount: Account | undefined
-        let originAccount: Account | undefined
-
-        for (const action of actions) {
-            switch (action) {
-                case 'reset':
-                    throw new ConnectorError(entitlementSelectionError, ConnectorErrorType.Generic)
-
-                case 'edit':
-                    throw new ConnectorError(entitlementSelectionError, ConnectorErrorType.Generic)
-
-                case 'unedit':
-                    throw new ConnectorError(entitlementSelectionError, ConnectorErrorType.Generic)
-
-                case 'report':
-                    throw new ConnectorError(entitlementSelectionError, ConnectorErrorType.Generic)
-
-                default:
-                    if (!uniqueAccount) {
-                        logger.info(`Creating ${nativeIdentity} account.`)
-                        await ctx.init(input.schema, true)
-                        uniqueAccount = await ctx.createUniqueAccount(nativeIdentity, 'requested')
-                    }
-
-                    if (action !== 'fusion') {
-                        const sourceName = await ctx.getSourceNameByID(action)
-                        const message = datedMessage(`Reviewer assigned for ${sourceName} source`, originAccount)
-                        uniqueAccount.attributes!.actions.push(action)
-                        pushNewItem(action, uniqueAccount.attributes!.actions)
-                        pushNewItem('reviewer', uniqueAccount.attributes!.statuses)
-                        uniqueAccount.attributes!.history.push(message)
-                    }
-
+            switch (runMode) {
+                case 'custom':
+                    await context.accountCreate(serviceRegistry, input, res)
                     break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountCreate(serviceRegistry, input, res)
             }
+        } catch (error) {
+            logger.error(error)
+            throw new ConnectorError(
+                `Failed to create account ${input.attributes.name ?? input.identity}`,
+                ConnectorErrorType.Generic
+            )
+        } finally {
+            ServiceRegistry.clear()
         }
-
-        // uniqueAccount!.attributes!.statuses = Array.from(new Set(uniqueAccount!.attributes!.statuses))
-        const account = (await ctx.refreshUniqueAccount(uniqueAccount!)) as UniqueAccount
-
-        logger.info({ account })
-        res.send(account)
-
-        ctx.logErrors(context, input)
     }
 
     const stdAccountUpdate: StdAccountUpdateHandler = async (context, input, res) => {
-        opLog(config, input)
-        logger.info(`Updating ${input.identity} account.`)
+        const isCustom = context.accountUpdate !== undefined
+        const isProxy = isProxyMode(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
-        if (config.reset) return
+        const interval =
+            runMode === 'proxy'
+                ? undefined
+                : setInterval(() => {
+                    res.keepAlive()
+                }, config.processingWait)
 
-        const ctx = new ContextHelper(config)
-        const lazy = input.changes.findIndex((x) => x.value === 'report') === -1 ? true : false
-        await ctx.init(input.schema, lazy)
+        try {
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running accountUpdate in ${runMode} mode`)
 
-        let account = await ctx.buildUniqueAccountFromID(input.identity)
-        let message: string
-
-        if (input.changes) {
-            for (const change of input.changes) {
-                const values = [].concat(change.value)
-                for (const value of values) {
-                    switch (change.attribute) {
-                        case 'actions':
-                            switch (value) {
-                                case 'reset':
-                                    await ctx.resetUniqueID(account)
-                                    message = datedMessage('UniqueID reset')
-                                    const history = account.attributes!.history as string[]
-                                    history.push(message)
-                                    break
-
-                                case 'edit':
-                                    const form = await ctx.createEditForm(account)
-                                    const reviewerIDs = await ctx.listReviewerIDs()
-
-                                    for (const reviewerID of reviewerIDs) {
-                                        const reviewer = (await ctx.getIdentityById(reviewerID)) as IdentityDocument
-                                        let currentFormInstance = await ctx.getEditFormInstanceByReviewerID(
-                                            form,
-                                            reviewerID
-                                        )
-
-                                        if (!currentFormInstance) {
-                                            currentFormInstance = await ctx.createEditFormInstance(form, reviewerID)
-                                            logger.info(
-                                                `Form URL for ${reviewer.attributes!.uid}: ${currentFormInstance.standAloneFormUrl}`
-                                            )
-                                            // Send notifications
-                                            logger.info(`Sending email notifications for ${form.name}`)
-                                            const email = new EditEmail(reviewer, form.name!, currentFormInstance)
-                                            await ctx.sendEmail(email)
-                                        }
-                                    }
-                                    break
-
-                                case 'unedit':
-                                    const fusionAccount = (await ctx.getFusionAccount(input.identity)) as Account
-                                    fusionAccount.modified = new Date(0).toISOString()
-                                    deleteArrayItem(fusionAccount.attributes!.statuses as string[], 'edit')
-                                    account = (await ctx.refreshUniqueAccount(fusionAccount)) as UniqueAccount
-                                    break
-
-                                case 'report':
-                                    ctx.buildReport(input.identity)
-                                    break
-
-                                default:
-                                    const sourceIDs = ctx.listSources().map((x) => x.id!)
-                                    const statuses = account.attributes.statuses as string[]
-                                    const actions = account.attributes.actions as string[]
-                                    switch (change.op) {
-                                        case AttributeChangeOp.Add:
-                                            if (!statuses.includes('reviewer')) {
-                                                statuses.push('reviewer')
-                                            }
-                                            if (sourceIDs.includes(value)) {
-                                                actions.push(value)
-                                            } else {
-                                                message = `Source ID ${value} is not a currently configured source.`
-                                                ctx.handleError(message)
-                                            }
-                                            break
-                                        case AttributeChangeOp.Remove:
-                                            deleteArrayItem(actions, value)
-                                            if (!sourceIDs.some((x) => actions.includes(x))) {
-                                                deleteArrayItem(statuses, 'reviewer')
-                                            }
-                                            break
-                                        case AttributeChangeOp.Set:
-                                            if (!statuses.includes('edited')) {
-                                                const now = new Date().toISOString().split('T')[0]
-                                                message = `[${now}] Account edited by attribute sync`
-                                                statuses.push('edited')
-                                                account.attributes[change.attribute] = value
-                                                const history = account.attributes!.history as string[]
-                                                history.push(message)
-                                            }
-                                            break
-
-                                        default:
-                                            break
-                                    }
-                                    break
-                            }
-                            break
-                        case 'statuses':
-                            message =
-                                'Status entitlements are not designed for assigment. Use action entitlements instead.'
-                            throw new ConnectorError(message, ConnectorErrorType.Generic)
-                        default:
-                            message = 'Operation not supported.'
-                            throw new ConnectorError(message, ConnectorErrorType.Generic)
-                    }
-                }
+            switch (runMode) {
+                case 'custom':
+                    await context.accountUpdate(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountUpdate(serviceRegistry, input, res)
             }
-            const statuses = account.attributes.statuses as string[]
-            account.attributes.statuses = Array.from(new Set(statuses))
-            //Need to investigate about std:account:update operations without changes but adding this for the moment
-        } else if ('attributes' in input) {
-            logger.warn(
-                'No changes detected in account update. Please report unless you used attribute sync which is not supported.'
-            )
+        } catch (error) {
+            logger.error(error)
+            throw new ConnectorError(`Failed to update account ${input.identity}`, ConnectorErrorType.Generic)
+        } finally {
+            ServiceRegistry.clear()
+            if (interval) {
+                clearInterval(interval)
+            }
         }
-
-        logger.info({ account })
-        res.send(account)
-
-        ctx.logErrors(context, input)
     }
 
     const stdAccountEnable: StdAccountEnableHandler = async (context, input, res) => {
-        opLog(config, input)
-        logger.info(`Enabling ${input.identity} account.`)
-
-        if (config.reset) return
-
-        const ctx = new ContextHelper(config)
-        await ctx.init(input.schema, true)
-
-        //Keepalive
-        const interval = setInterval(() => {
-            res.keepAlive()
-        }, PROCESSINGWAIT)
+        const isCustom = context.accountEnable !== undefined
+        const isProxy = isProxyMode(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
-            const account = await ctx.buildUniqueAccountFromID(input.identity)
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running accountEnable in ${runMode} mode`)
 
-            account.disabled = false
-            account.attributes.IIQDisabled = false
-
-            logger.info({ account })
-            res.send(account)
+            switch (runMode) {
+                case 'custom':
+                    await context.accountEnable(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountEnable(serviceRegistry, input, res)
+            }
         } catch (error) {
             logger.error(error)
+            throw new ConnectorError(`Failed to enable account ${input.identity}`, ConnectorErrorType.Generic)
         } finally {
-            clearInterval(interval)
+            ServiceRegistry.clear()
         }
-
-        ctx.logErrors(context, input)
     }
 
     const stdAccountDisable: StdAccountDisableHandler = async (context, input, res) => {
-        opLog(config, input)
-        logger.info(`Disabling ${input.identity} account.`)
-
-        if (config.reset) return
-
-        const ctx = new ContextHelper(config)
-        await ctx.init(input.schema, true)
-
-        //Keepalive
-        const interval = setInterval(() => {
-            res.keepAlive()
-        }, PROCESSINGWAIT)
+        const isCustom = context.accountDisable !== undefined
+        const isProxy = isProxyMode(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
-            const account = await ctx.buildUniqueAccountFromID(input.identity)
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running accountDisable in ${runMode} mode`)
 
-            account.disabled = true
-            account.attributes.IIQDisabled = true
-
-            logger.info({ account })
-            res.send(account)
+            switch (runMode) {
+                case 'custom':
+                    await context.accountDisable(serviceRegistry, input, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountDisable(serviceRegistry, input, res)
+            }
         } catch (error) {
             logger.error(error)
+            throw new ConnectorError(`Failed to disable account ${input.identity}`, ConnectorErrorType.Generic)
         } finally {
-            clearInterval(interval)
+            ServiceRegistry.clear()
         }
-
-        ctx.logErrors(context, input)
     }
 
     const stdEntitlementList: StdEntitlementListHandler = async (context, input, res) => {
-        const c = 'stdEntitlementList'
-        const errors: string[] = []
-        opLog(config, input)
-
-        const ctx = new ContextHelper(config)
-        await ctx.init(undefined, true)
+        const isCustom = context.entitlementList !== undefined
+        const isProxy = isProxyMode(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
         try {
-            let entitlements: StdEntitlementListOutput[]
-            const sources = ctx.listSources()
-            switch (input.type) {
-                case 'status':
-                    entitlements = ctx.buildStatusEntitlements()
-                    break
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running entitlementList in ${runMode} mode`)
 
-                case 'action':
-                    entitlements = ctx.buildActionEntitlements()
+            switch (runMode) {
+                case 'custom':
+                    await context.entitlementList(serviceRegistry, input, res)
                     break
-
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
                 default:
-                    const message = `Unsupported entitlement type ${input.type}`
-                    throw new ConnectorError(message)
+                    await entitlementList(serviceRegistry, input, res)
             }
-            for (const e of entitlements) {
-                logger.info({ e })
-                res.send(e)
-            }
-        } catch (e) {
-            if (e instanceof Error) {
-                logger.error(e.message)
-                errors.push(e.message)
-            }
+        } catch (error) {
+            logger.error(error)
+            throw new ConnectorError(`Failed to list entitlements for type ${input.type}`, ConnectorErrorType.Generic)
+        } finally {
+            ServiceRegistry.clear()
         }
-
-        ctx.logErrors(context, input)
     }
 
     const stdAccountDiscoverSchema: StdAccountDiscoverSchemaHandler = async (context, input, res) => {
-        opLog(config, input)
-        logger.info('Building dynamic schema.')
+        const isCustom = context.accountDiscoverSchema !== undefined
+        const isProxy = isProxyMode(config)
+        const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
 
-        const ctx = new ContextHelper(config)
-        await ctx.init(undefined, true)
-        const schema = await ctx.getSchema()
+        try {
+            const serviceRegistry = new ServiceRegistry(config, context)
+            logger.info(`Running accountDiscoverSchema in ${runMode} mode`)
 
-        logger.info({ schema })
-        res.send(schema)
-
-        ctx.logErrors(context, input)
+            switch (runMode) {
+                case 'custom':
+                    await context.accountDiscoverSchema(serviceRegistry, res)
+                    break
+                case 'proxy':
+                    await proxy(context, input, res)
+                    break
+                default:
+                    await accountDiscoverSchema(serviceRegistry, res)
+            }
+        } catch (error) {
+            logger.error(error)
+            throw new ConnectorError('Failed to discover schema', ConnectorErrorType.Generic)
+        } finally {
+            ServiceRegistry.clear()
+        }
     }
 
     return createConnector()

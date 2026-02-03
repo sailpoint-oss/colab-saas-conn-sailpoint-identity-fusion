@@ -1,0 +1,51 @@
+id,firstName,lastName,fullName,email,phone,birthDate,hireDate,ssn,address,city,state,zipCode,country,department,title,managerId
+1,John,O'Brien,John O'Brien,john.obrien@example.com,(555) 123-4567,1985-03-15,2020-01-15,123-45-6789,123 Main Street,Seattle,WA,98101,US,Engineering,Software Engineer,10
+2,María,García,María García,maria.garcia@example.com,+1 555 234 5678,03/22/1990,2019-06-01,234 56 7890,456 Oak Avenue,Los Angeles,CA,90001,US,Marketing,Marketing Manager,11
+3,François,Müller,François Müller,francois.muller@example.com,555.345.6789,22-04-1988,Jan 15 2021,345-67-8901,789 Pine Road,Chicago,IL,60601,US,Finance,Financial Analyst,12
+4,James,McDonald,James McDonald,james.mcdonald@example.com,1-555-456-7890,1982/07/10,2018-03-20,456789012,321 Elm Street,Houston,TX,77001,US,Engineering,Senior Developer,10
+5,Søren,Østergaard,Søren Østergaard,soren.ostergaard@example.com,(555)567-8901,July 4 1995,2022-02-14,567-89-0123,654 Maple Drive,Phoenix,AZ,85001,US,Sales,Sales Representative,13
+6,Mary-Jane,Watson,Mary-Jane Watson,maryjane.watson@example.com,+1-555-678-9012,1993-11-30,2021-08-01,678 90 1234,987 Cedar Lane,Philadelphia,PA,19101,US,HR,HR Specialist,14
+7,José,de la Cruz,José de la Cruz,jose.delacruz@example.com,555 789 0123,30/11/1987,March 1 2020,789012345,147 Birch Court,San Antonio,TX,78201,US,Engineering,DevOps Engineer,10
+8,Björk,Guðmundsdóttir,Björk Guðmundsdóttir,bjork.gudmundsdottir@example.com,(555) 890-1234,1965-11-21,2017-09-15,890-12-3456,258 Walnut Way,San Diego,CA,92101,US,Creative,Creative Director,15
+9,Patrick,MacArthur,Patrick MacArthur,patrick.macarthur@example.com,555-901-2345,21 Nov 1978,2019-12-01,901234567,369 Spruce Street,Dallas,TX,75201,US,Legal,Legal Counsel,16
+10,Hans,van der Berg,Hans van der Berg,hans.vanderberg@example.com,+1 (555) 012-3456,1991-05-08,2020-07-20,012-34-5678,741 Ash Boulevard,San Jose,CA,95101,US,Engineering,Engineering Manager,
+11,Émilie,Beaumont,Émilie Beaumont,emilie.beaumont@example.com,(555)123-4567,08/May/1994,2021-04-15,123456789,852 Hickory Lane,Austin,TX,78701,US,Marketing,Content Writer,11
+12,Liam,O'Connor,Liam O'Connor,liam.oconnor@example.com,555 234 5678,1989-02-28,Feb 28 2018,234-56-7891,963 Chestnut Drive,Jacksonville,FL,32099,US,Sales,Account Executive,13
+13,Nöel,Čapek,Nöel Čapek,noel.capek@example.com,1 555 345 6789,28-02-1992,2022-01-10,345678912,174 Sycamore Court,Fort Worth,TX,76101,US,Engineering,QA Engineer,10
+14,Anna-Marie,Schmidt,Anna-Marie Schmidt,annamarie.schmidt@example.com,(555)-456-7890,1986/12/25,2019-11-11,456-78-9123,285 Poplar Road,Columbus,OH,43085,US,Finance,Controller,12
+15,Renée,D'Angelo,Renée D'Angelo,renee.dangelo@example.com,555.567.8901,December 25 1983,2017-06-30,567891234,396 Magnolia Avenue,Charlotte,NC,28201,US,HR,HR Director,
+16,Michael,McIntyre,Michael McIntyre,michael.mcintyre@example.com,+1-555-678-9012,1990-09-17,2020-10-05,678-91-2345,417 Willow Street,San Francisco,CA,94101,US,Engineering,Staff Engineer,10
+17,Zoë,Kravitz,Zoë Kravitz,zoe.kravitz@example.com,(555) 789-0123,17/09/1988,Sept 1 2019,789123456,528 Cypress Lane,Indianapolis,IN,46201,US,Creative,Graphic Designer,15
+18,Pierre,von Trapp,Pierre von Trapp,pierre.vontrapp@example.com,555 890 1234,1984-06-21,2018-05-15,890-12-3457,639 Redwood Drive,Seattle,WA,98102,US,Legal,Paralegal,16
+19,Siobhán,Murphy,Siobhán Murphy,siobhan.murphy@example.com,1-555-901-2345,21 June 1997,2022-03-01,901234568,750 Juniper Court,Denver,CO,80201,US,Marketing,Brand Manager,11
+20,André,Lefèvre,André Lefèvre,andre.lefevre@example.com,(555)012-3456,1981-08-14,2016-09-20,012345679,861 Sequoia Road,Washington,DC,20001,US,Engineering,Principal Engineer,
+21,Jean-Pierre,Dubois,Jean-Pierre Dubois,jeanpierre.dubois@example.com,555-123-4568,14/08/1979,Aug 14 2017,123-45-6790,972 Dogwood Lane,Boston,MA,02101,US,Finance,CFO,
+22,Fátima,Rodriguez,Fátima Rodriguez,fatima.rodriguez@example.com,+1 555 234 5679,1993-04-02,2021-01-18,234567891,183 Pecan Avenue,El Paso,TX,79901,US,Sales,Sales Director,
+23,Niamh,O'Sullivan,Niamh O'Sullivan,niamh.osullivan@example.com,(555) 345-6790,02-04-1996,2022-06-01,345-67-8912,294 Cottonwood Street,Detroit,MI,48201,US,HR,Recruiter,14
+24,Günther,Straße,Günther Straße,gunther.strasse@example.com,555.456.7891,1987-10-31,October 31 2018,456789123,405 Palm Drive,Nashville,TN,37201,US,Engineering,Architect,10
+25,Chloé,Martin,Chloé Martin,chloe.martin@example.com,1 555 567 8902,31/10/1994,2020-04-20,567-89-1234,516 Acacia Court,Portland,OR,97201,US,Marketing,SEO Specialist,11
+26,Ciarán,McCarthy,Ciarán McCarthy,ciaran.mccarthy@example.com,(555)-678-9013,1985-01-19,Jan 19 2019,678912345,627 Mulberry Road,Oklahoma City,OK,73101,US,Legal,Attorney,16
+27,Naïve,Le Blanc,Naïve Le Blanc,naive.leblanc@example.com,555 789 0124,19-01-1991,2021-09-13,789-12-3458,738 Fir Lane,Las Vegas,NV,89101,US,Creative,UX Designer,15
+28,William,MacGregor,William MacGregor,william.macgregor@example.com,+1-555-890-1235,1983-07-04,2017-04-01,890123458,849 Olive Avenue,Louisville,KY,40201,US,Engineering,Tech Lead,10
+29,Hélène,Petit,Hélène Petit,helene.petit@example.com,(555) 901-2346,04/07/1998,July 4 2022,901-23-4569,950 Hawthorn Street,Baltimore,MD,21201,US,Finance,Accountant,12
+30,Padraig,O'Neill,Padraig O'Neill,padraig.oneill@example.com,555-012-3457,1980-12-10,2015-08-25,012345680,161 Ivy Drive,Milwaukee,WI,53201,US,Sales,Regional Manager,13
+31,Jürgen,Klöpp,Jürgen Klöpp,jurgen.klopp@example.com,1-555-123-4569,10/12/1967,Dec 10 2016,123456791,272 Laurel Court,Albuquerque,NM,87101,US,Engineering,VP Engineering,
+32,Marie-Claire,Fontaine,Marie-Claire Fontaine,marieclaire.fontaine@example.com,(555)234-5680,1992-03-08,2020-11-30,234-56-7892,383 Beech Road,Tucson,AZ,85701,US,HR,Benefits Manager,14
+33,Seán,Fitzpatrick,Seán Fitzpatrick,sean.fitzpatrick@example.com,555.345.6791,08-03-1986,2018-02-14,345678913,494 Hemlock Lane,Fresno,CA,93650,US,Marketing,Digital Marketing Lead,11
+34,Amélie,Girard,Amélie Girard,amelie.girard@example.com,+1 555 456 7892,1995-06-15,2021-07-01,456-78-9124,605 Alder Avenue,Sacramento,CA,95814,US,Creative,Art Director,15
+35,Connor,McPherson,Connor McPherson,connor.mcpherson@example.com,(555) 567-8903,15/06/1989,June 15 2019,567891235,716 Catalpa Street,Long Beach,CA,90801,US,Engineering,Backend Developer,10
+36,Élise,van Houten,Élise van Houten,elise.vanhouten@example.com,555 678 9014,1984-09-22,2017-12-18,678-91-2346,827 Linden Drive,Kansas City,MO,64101,US,Legal,Compliance Officer,16
+37,Roisín,Kelly,Roisín Kelly,roisin.kelly@example.com,1 555 789 0125,22-09-1997,2022-05-09,789123457,938 Aspen Court,Mesa,AZ,85201,US,Sales,Inside Sales Rep,13
+38,Torbjörn,Lindqvist,Torbjörn Lindqvist,torbjorn.lindqvist@example.com,(555)-890-1236,1978-04-30,April 30 2016,890-12-3459,149 Basswood Road,Virginia Beach,VA,23450,US,Finance,Treasurer,12
+39,Geneviève,Rousseau,Geneviève Rousseau,genevieve.rousseau@example.com,555-901-2347,30/04/1990,2019-08-22,901234569,250 Buckeye Lane,Atlanta,GA,30301,US,Engineering,Frontend Developer,10
+40,Declan,O'Reilly,Declan O'Reilly,declan.oreilly@example.com,+1-555-012-3458,1982-11-05,Nov 5 2017,012-34-5681,361 Eucalyptus Avenue,Colorado Springs,CO,80901,US,HR,Training Manager,14
+41,Ågot,Nørgaard,Ågot Nørgaard,agot.norgaard@example.com,(555) 123-4570,05/11/1993,2021-02-28,123456792,472 Ginkgo Street,Omaha,NE,68101,US,Marketing,Events Coordinator,11
+42,Louis-Philippe,Tremblay,Louis-Philippe Tremblay,louisphilippe.tremblay@example.com,555 234 5681,1987-08-19,2018-10-15,234-56-7893,583 Cherry Drive,Raleigh,NC,27601,US,Engineering,Systems Engineer,10
+43,Aoife,Brennan,Aoife Brennan,aoife.brennan@example.com,1-555-345-6792,19-08-1999,Aug 19 2022,345678914,694 Hazel Court,Miami,FL,33101,US,Creative,Copywriter,15
+44,Matthäus,Schneider,Matthäus Schneider,matthaus.schneider@example.com,(555)456-7893,1981-02-14,2016-06-01,456789125,805 Ironwood Road,Cleveland,OH,44101,US,Legal,IP Attorney,16
+45,Pénélope,Moreau,Pénélope Moreau,penelope.moreau@example.com,555.567.8904,14/02/1996,2020-09-07,567-89-1236,916 Locust Lane,Tulsa,OK,74101,US,Sales,Channel Partner Manager,13
+46,Oisín,Ryan,Oisín Ryan,oisin.ryan@example.com,+1 555 678 9015,1988-05-27,May 27 2019,678912346,127 Mahogany Avenue,Minneapolis,MN,55401,US,Engineering,Data Engineer,10
+47,Anaïs,Bernard,Anaïs Bernard,anais.bernard@example.com,(555) 789-0126,27-05-1994,2021-11-22,789-12-3460,238 Sassafras Street,Wichita,KS,67201,US,Finance,Budget Analyst,12
+48,Tadhg,Flynn,Tadhg Flynn,tadhg.flynn@example.com,555 890 1237,1986-10-08,2018-04-09,890123459,349 Pawpaw Drive,Arlington,TX,76001,US,HR,Employee Relations,14
+49,Léa,Dupont,Léa Dupont,lea.dupont@example.com,1 555 901 2348,08/10/1992,October 8 2020,901-23-4570,460 Persimmon Court,Bakersfield,CA,93301,US,Marketing,PR Specialist,11
+50,Caoimhe,Walsh,Caoimhe Walsh,caoimhe.walsh@example.com,(555)-012-3459,1989-07-16,2019-03-25,012345681,571 Sumac Road,Tampa,FL,33601,US,Engineering,Mobile Developer,10

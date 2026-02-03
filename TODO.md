@@ -1,0 +1,7 @@
+- Create test artefacts
+- Implement appropriate exception handling
+- Improve logging
+- Implement Reset processing flag in case of unfinished processing?
+- Rethink source account filter
+- Consider enabled/disabled switch for card options
+- Implement performance logging (report???)
