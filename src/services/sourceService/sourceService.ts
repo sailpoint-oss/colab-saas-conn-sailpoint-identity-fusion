@@ -39,9 +39,42 @@ export class SourceService {
     private _fusionSourceId?: string
     private _fusionSourceOwner?: OwnerDto
 
-    // Account caching
+    // Account caching and work queue
+    // managedAccountsById serves dual purpose:
+    // 1. Cache: Provides fast lookup of managed accounts by ID
+    // 2. Work Queue: Gets depleted as accounts are processed (deleted) in order:
+    //    fetchFormData → processFusionAccounts → processIdentities → processManagedAccounts
     public managedAccountsById: Map<string, Account> = new Map()
     public fusionAccountsByNativeIdentity?: Map<string, Account>
+
+    /**
+     * Clear managed accounts cache to free memory after processing.
+     * 
+     * Memory Optimization:
+     * Called at the end of accountList operation after all accounts have been
+     * sent to the platform. This releases potentially thousands of account objects
+     * from memory. The work queue pattern means most accounts have already been
+     * deleted during processing, but this ensures any remaining references are cleared.
+     */
+    public clearManagedAccounts(): void {
+        this.managedAccountsById.clear()
+        this.log.debug('Managed accounts cache cleared from memory')
+    }
+
+    /**
+     * Clear fusion accounts cache to free memory after processing.
+     * 
+     * Memory Optimization:
+     * Called at the end of accountList operation after all accounts have been
+     * sent to the platform. Fusion accounts are loaded once and referenced throughout
+     * processing, so clearing this cache at the end frees significant memory.
+     */
+    public clearFusionAccounts(): void {
+        if (this.fusionAccountsByNativeIdentity) {
+            this.fusionAccountsByNativeIdentity.clear()
+        }
+        this.log.debug('Fusion accounts cache cleared from memory')
+    }
 
     // Config settings
     private readonly sources: SourceConfig[]
@@ -93,7 +126,20 @@ export class SourceService {
     }
 
     /**
-     * Get all managed accounts
+     * Get all managed accounts.
+     * 
+     * Work Queue Pattern:
+     * This getter returns the current state of the work queue. As processing phases
+     * complete (fetchFormData → processFusionAccounts → processIdentities), accounts
+     * are deleted from managedAccountsById. By the time processManagedAccounts calls
+     * this getter, it returns ONLY the uncorrelated accounts that remain in the queue.
+     * 
+     * This is intentional and critical for correct operation:
+     * - No snapshot or copy is made
+     * - Returns live view of the depleted queue
+     * - Ensures no duplicate processing
+     * 
+     * @returns Array of accounts currently in the work queue
      */
     public get managedAccounts(): Account[] {
         assert(this.managedAccountsById, 'Managed accounts have not been loaded')

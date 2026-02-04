@@ -135,7 +135,22 @@ export class FusionService {
     }
 
     /**
-     * Process all fusion accounts from sources
+     * Process all fusion accounts from sources.
+     * 
+     * This is Phase 2 of the work queue depletion process:
+     * - Phase 1: fetchFormData removes accounts with pending form decisions
+     * - Phase 2: processFusionAccounts (this method) removes accounts belonging to existing fusion accounts
+     * - Phase 3: processIdentities removes accounts belonging to identities
+     * - Phase 4: processManagedAccounts processes only what remains (uncorrelated accounts)
+     * 
+     * Each fusion account processes in parallel using Promise.all, but all share the same
+     * work queue (this.sources.managedAccountsById). As accounts are matched, they're
+     * deleted from the queue via addManagedAccountLayer.
+     * 
+     * Memory Optimization:
+     * - No snapshot or copy is made of managedAccountsById
+     * - All parallel operations work with the direct reference
+     * - Deletions physically remove accounts from memory as they're processed
      */
     public async processFusionAccounts(): Promise<void> {
         const fusionAccounts = this.sources.fusionAccounts
@@ -163,12 +178,26 @@ export class FusionService {
     }
 
     /**
-     * Process a single fusion account
+     * Process a single fusion account.
+     * 
+     * This method builds a complete fusion account by layering data from multiple sources:
+     * 1. Pre-process: Extract basic account info and set key
+     * 2. Reviewer layer: Identify reviewers for this fusion account's sources
+     * 3. Identity layer: Add identity document data
+     * 4. Decision layer: Add any manual fusion decisions from forms
+     * 5. Managed account layer: Find and attach managed accounts from work queue
+     * 
+     * Work Queue Integration:
+     * addManagedAccountLayer receives the direct reference to this.sources.managedAccountsById,
+     * which is the shared work queue. As accounts are matched and processed, they're deleted
+     * from the queue to prevent duplicate processing in later phases.
+     * 
+     * @param account - The fusion account from the platform
+     * @returns Processed FusionAccount with all layers applied
      */
     public async processFusionAccount(account: Account): Promise<FusionAccount> {
         const fusionAccount = await this.preProcessFusionAccount(account)
-        const managedAccountsMap = this.sources.managedAccountsById
-        assert(managedAccountsMap, 'Managed accounts have not been loaded')
+        assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
         const identityId = account.identityId!
 
         // Use for...of instead of forEach for better performance
@@ -186,8 +215,9 @@ export class FusionService {
             }
         }
 
-        // Pass the captured map reference directly
-        fusionAccount.addManagedAccountLayer(managedAccountsMap)
+        // Pass direct reference to work queue - deletions will remove processed accounts
+        // No snapshot or copy needed: JavaScript's event loop ensures atomic operations
+        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
 
         if (this.commandType === StandardCommand.StdAccountList) {
             await this.attributes.registerUniqueAttributes(fusionAccount)
@@ -210,7 +240,17 @@ export class FusionService {
     // ------------------------------------------------------------------------
 
     /**
-     * Process all identities
+     * Process all identities.
+     * 
+     * This is Phase 3 of the work queue depletion process:
+     * - Phase 1: fetchFormData removes accounts with pending form decisions
+     * - Phase 2: processFusionAccounts removes accounts belonging to existing fusion accounts
+     * - Phase 3: processIdentities (this method) removes accounts belonging to identities
+     * - Phase 4: processManagedAccounts processes only what remains (uncorrelated accounts)
+     * 
+     * For identities that don't have a corresponding fusion account yet, this creates a
+     * fusion account from the identity and attaches any managed accounts that belong to it.
+     * Matched accounts are deleted from the work queue.
      */
     public async processIdentities(): Promise<void> {
         const { identities } = this.identities
@@ -235,7 +275,16 @@ export class FusionService {
     }
 
     /**
-     * Process a single identity
+     * Process a single identity.
+     * 
+     * Creates a fusion account from an identity document if one doesn't already exist.
+     * This handles identities that don't have a pre-existing fusion account record.
+     * 
+     * Work Queue Integration:
+     * Passes direct reference to the work queue so managed accounts belonging to this
+     * identity can be matched and removed from the queue, preventing duplicate processing.
+     * 
+     * @param identity - Identity document from the platform
      */
     public async processIdentity(identity: IdentityDocument): Promise<void> {
         const { fusionDisplayAttribute } = this.schemas
@@ -245,9 +294,9 @@ export class FusionService {
             const fusionAccount = FusionAccount.fromIdentity(identity)
             fusionAccount.addIdentityLayer(identity)
 
-            const managedAccountsMap = this.sources.managedAccountsById
-            assert(managedAccountsMap, 'Managed accounts have not been loaded')
-            fusionAccount.addManagedAccountLayer(managedAccountsMap)
+            assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
+            // Pass direct reference to work queue - deletions will remove processed accounts
+            fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
 
             this.attributes.mapAttributes(fusionAccount)
             await this.attributes.refreshAttributes(fusionAccount)
@@ -272,28 +321,26 @@ export class FusionService {
 
         // Clear reviewer reviews so we repopulate only from current run (pending decisions + form instances).
         // This ensures reviewers' reviews attribute is updated with current fusion review instance URLs every run.
-        const reviewerSet = new Set<FusionAccount>()
         for (const reviewers of this._reviewersBySourceId.values()) {
             for (const reviewer of reviewers) {
-                reviewerSet.add(reviewer)
+                reviewer.clearFusionReviews()
             }
-        }
-        for (const reviewer of reviewerSet) {
-            reviewer.clearFusionReviews()
         }
 
         // Populate reviewer reviews from pending (unanswered) form instances kept during fetchFormData.
         // Each reviewer gets their current pending instance URLs by identityId.
         const pendingByReviewer = this.forms.pendingReviewUrlsByReviewerId
         let pendingReviews = 0
-        for (const reviewer of reviewerSet) {
-            const identityId = reviewer.identityId
-            if (!identityId) continue
-            const urls = pendingByReviewer.get(identityId)
-            if (!urls?.length) continue
-            for (const url of urls) {
-                reviewer.addFusionReview(url)
-                pendingReviews++
+        for (const reviewers of this._reviewersBySourceId.values()) {
+            for (const reviewer of reviewers) {
+                const identityId = reviewer.identityId
+                if (!identityId) continue
+                const urls = pendingByReviewer.get(identityId)
+                if (!urls?.length) continue
+                for (const url of urls) {
+                    reviewer.addFusionReview(url)
+                    pendingReviews++
+                }
             }
         }
         this.log.debug(`Populated reviewer reviews from pending form instances - added ${pendingReviews} pending review(s)`)
@@ -325,8 +372,8 @@ export class FusionService {
         }
 
         fusionAccount.addFusionDecisionLayer(fusionDecision)
-        const managedAccountsMap = this.sources.managedAccountsById!
-        fusionAccount.addManagedAccountLayer(managedAccountsMap)
+        // Use direct reference - deletions will remove processed accounts from the working queue
+        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshAttributes(fusionAccount)
 
@@ -343,7 +390,26 @@ export class FusionService {
     // ------------------------------------------------------------------------
 
     /**
-     * Process all managed accounts
+     * Process all managed accounts.
+     * 
+     * This is Phase 4 (final phase) of the work queue depletion process:
+     * - Phase 1: fetchFormData removes accounts with pending form decisions
+     * - Phase 2: processFusionAccounts removes accounts belonging to existing fusion accounts
+     * - Phase 3: processIdentities removes accounts belonging to identities
+     * - Phase 4: processManagedAccounts (this method) processes ONLY what remains
+     * 
+     * At this point, the work queue (this.sources.managedAccountsById) contains ONLY
+     * uncorrelated accounts that don't belong to any existing fusion account or identity.
+     * These are the truly new accounts that need deduplication review.
+     * 
+     * The work queue pattern ensures:
+     * - No duplicate processing (accounts are physically removed as they're claimed)
+     * - Efficient filtering (no need to re-check thousands of already-processed accounts)
+     * - Clear ownership (each account is processed exactly once)
+     * 
+     * Memory Efficiency:
+     * After this method completes, analyzedManagedAccounts and potentialDuplicateAccounts
+     * arrays will be cleared by generateReport() to free memory.
      */
     public async processManagedAccounts(): Promise<void> {
         const { managedAccounts } = this.sources
@@ -502,6 +568,7 @@ export class FusionService {
         const fusionAccount = FusionAccount.fromManagedAccount(account)
 
         assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
+        // Single account - no need to create a map, just pass a minimal map
         fusionAccount.addManagedAccountLayer(new Map([[account.id!, account]]))
 
         this.attributes.mapAttributes(fusionAccount)
@@ -594,7 +661,17 @@ export class FusionService {
     }
 
     /**
-     * Generate a fusion report with all accounts that have potential duplicates
+     * Generate a fusion report with all accounts that have potential duplicates.
+     * 
+     * Memory Optimization:
+     * After generating the report, this method clears the analyzedManagedAccounts
+     * and potentialDuplicateAccounts arrays to free memory. These arrays hold
+     * references to all managed accounts that were analyzed during processManagedAccounts,
+     * which could be thousands of objects. Clearing them as soon as the report is
+     * generated significantly reduces memory footprint.
+     * 
+     * @param includeNonMatches - Whether to include non-matching accounts in the report
+     * @returns Complete fusion report with match/non-match accounts
      */
     public generateReport(includeNonMatches: boolean = false): FusionReport {
         const accounts: FusionReportAccount[] = []
@@ -642,12 +719,19 @@ export class FusionService {
 
         const potentialDuplicates = accounts.length
 
-        return {
+        const report: FusionReport = {
             accounts: allAccounts,
             totalAccounts: this.newManagedAccountsCount,
             potentialDuplicates,
             reportDate: new Date(),
         }
+
+        // Release memory from analyzed accounts after report generation
+        this.log.debug('Clearing analyzed managed accounts from memory')
+        this.analyzedManagedAccounts = []
+        this.potentialDuplicateAccounts = []
+
+        return report
     }
 
     /**

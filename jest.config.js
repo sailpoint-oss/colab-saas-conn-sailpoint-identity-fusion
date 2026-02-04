@@ -1,11 +1,14 @@
 module.exports = {
     preset: 'ts-jest',
-    testTimeout: 900000, // 15 minutes to allow for aggregation polling
+    testTimeout: 180000,
     testEnvironment: 'node',
     roots: ['<rootDir>/src'],
-    testMatch: ['**/__tests__/**/*.(spec|test).+(ts|tsx|js)', '**/?(*.)+(spec|test).+(ts|tsx|js)'],
-    testPathIgnorePatterns: [
-        '<rootDir>/src/__tests__/test-config.ts',
-        '<rootDir>/src/__tests__/helpers/',
-    ],
+    testMatch: ['**/__tests__/**/*.+(ts|tsx|js)', '**/?(*.)+(spec|test).+(ts|tsx|js)'],
+    testPathIgnorePatterns: ['<rootDir>/src/__tests__/test-config.ts'],
+    // Allow Jest to transform ESM-only packages (e.g. double-metaphone) via Babel
+    transformIgnorePatterns: ['node_modules/(?!(double-metaphone)/)'],
+    transform: {
+        '^.+\\.(ts|tsx)$': 'ts-jest',
+        '^.+\\.js$': 'babel-jest'
+    }
 }

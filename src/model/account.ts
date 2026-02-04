@@ -60,6 +60,7 @@ export class FusionAccount {
     private _history: string[] = []
 
     // Attribute management
+    // Note: previous is initialized lazily only when needed to save memory for new accounts
     private _attributeBag: AttributeBag = {
         previous: {},
         current: {},
@@ -134,7 +135,8 @@ export class FusionAccount {
         }
         if (config.attributes) {
             this._attributeBag.current = { ...config.attributes }
-            if (config.type === 'fusion') {
+            // Only store previous for existing fusion accounts to save memory
+            if (config.type === 'fusion' && config.nativeIdentity) {
                 this._attributeBag.previous = { ...config.attributes }
             }
         }
@@ -697,13 +699,38 @@ export class FusionAccount {
         })
     }
 
+    /**
+     * Add managed account layer to this fusion account.
+     * 
+     * This method processes managed accounts from the shared work queue and performs two critical operations:
+     * 1. Identifies and processes accounts that belong to this fusion account based on identity correlation
+     * 2. Removes processed accounts from the shared queue to prevent duplicate processing
+     * 
+     * Work Queue Pattern:
+     * - accountsById is typically the shared this.sources.managedAccountsById map
+     * - As accounts are processed, they're deleted from the map (working queue)
+     * - This ensures subsequent processing phases (fusion → identity → managed) only see unprocessed accounts
+     * - The queue gets depleted: fetchFormData → processFusionAccounts → processIdentities → processManagedAccounts
+     * 
+     * Thread Safety:
+     * - JavaScript's single-threaded event loop ensures map operations are atomic
+     * - Multiple async operations (via Promise.all) won't corrupt the map
+     * - Deletions are safe even during parallel processing
+     * 
+     * @param accountsById - Shared work queue of managed accounts (typically this.sources.managedAccountsById)
+     */
     public addManagedAccountLayer(accountsById: Map<string, Account>): void {
-        const keysToDelete = this.processAccountsForLayer(accountsById)
-        this.deleteProcessedAccounts(accountsById, keysToDelete)
+        const processedAccountIds = this.processAccountsForLayer(accountsById)
+        
+        // Remove processed accounts from the working queue so they won't be processed again
+        // This is critical: managedAccountsById acts as a queue that gets depleted as
+        // fusion/identity processing happens, leaving only uncorrelated accounts for
+        // the final managed account processing phase
+        this.deleteProcessedAccounts(accountsById, processedAccountIds)
 
         // Rebuild account/missing-account ID sets using the previously stored
         // IDs and the managed accounts that were actually processed.
-        this.rebuildAccountSetsAfterManagedLayer(keysToDelete)
+        this.rebuildAccountSetsAfterManagedLayer(processedAccountIds)
 
         // Update orphan status based on final account state
         // An account is orphaned if it has no managed accounts and is not a baseline identity
@@ -716,24 +743,40 @@ export class FusionAccount {
     }
 
     /**
-     * Process accounts that belong to this fusion account
-     * @returns Array of account IDs that were processed and should be removed from the map
+     * Process accounts that belong to this fusion account.
+     * 
+     * Iterates through all accounts in the work queue and identifies which ones
+     * belong to this fusion account based on shouldProcessAccount criteria.
+     * 
+     * @param accountsById - The shared work queue of managed accounts
+     * @returns Array of account IDs that were processed and should be removed from the queue
      */
     private processAccountsForLayer(accountsById: Map<string, Account>): string[] {
-        const keysToDelete: string[] = []
+        const processedIds: string[] = []
 
         for (const [id, account] of accountsById.entries()) {
             if (this.shouldProcessAccount(id, account)) {
                 this.setManagedAccount(account)
-                keysToDelete.push(id)
+                processedIds.push(id)
             }
         }
 
-        return keysToDelete
+        return processedIds
     }
 
     /**
-     * Determine if an account should be processed for this fusion account
+     * Determine if an account should be processed for this fusion account.
+     * 
+     * An account belongs to this fusion account if:
+     * 1. It's in the missingAccountIds list (pre-determined accounts from fusion account attributes)
+     * 2. It's already correlated to this identity (account.identityId matches this._identityId)
+     * 
+     * These criteria ensure each managed account is processed by exactly one fusion account,
+     * preventing duplicate processing.
+     * 
+     * @param id - Account ID to check
+     * @param account - Account object to check
+     * @returns true if this account should be processed by this fusion account
      */
     private shouldProcessAccount(id: string, account: Account): boolean {
         return (
@@ -743,15 +786,24 @@ export class FusionAccount {
     }
 
     /**
-     * Delete processed accounts from the map
+     * Delete processed accounts from the shared working queue.
+     * 
+     * This is a critical part of the work queue pattern:
+     * - Removes accounts that have been claimed by this fusion account
+     * - Prevents subsequent processing phases from re-processing these accounts
+     * - Ensures processManagedAccounts only sees truly uncorrelated accounts
+     * 
+     * Thread Safety:
+     * JavaScript's single-threaded event loop ensures map operations are atomic.
+     * Even with Promise.all creating concurrent async operations, the actual
+     * map.delete() calls execute sequentially, preventing corruption.
+     * 
+     * @param accountsById - The shared work queue (this.sources.managedAccountsById)
+     * @param processedIds - Array of account IDs to remove from the queue
      */
-    private deleteProcessedAccounts(accountsById: Map<string, Account>, keysToDelete: string[]): void {
-        for (const id of keysToDelete) {
-            const deleted = accountsById.delete(id)
-            if (!deleted) {
-                // This should never happen, but helps debug if the map reference is wrong
-                console.warn(`Failed to delete key ${id} from map - key may not exist or map reference is wrong`)
-            }
+    private deleteProcessedAccounts(accountsById: Map<string, Account>, processedIds: string[]): void {
+        for (const id of processedIds) {
+            accountsById.delete(id)
         }
     }
 

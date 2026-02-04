@@ -1,6 +1,6 @@
 {
-    "name": "Identity Fusion",
-    "description": "Identity Fusion is a connector that allows you to manage Identity Fusion accounts by generating unique identifiers, preventing duplicate identities through similarity matching, and merging account attributes from multiple authoritative sources.",
+    "name": "Identity Fusion NG",
+    "description": "Identity Fusion NG is a connector that allows you to manage Identity Fusion accounts by generating unique identifiers, preventing duplicate identities through similarity matching, and merging account attributes from multiple authoritative sources.",
     "commands": [
         "std:test-connection",
         "std:account:list",
