@@ -26,43 +26,51 @@ export const accountCreate = async (
         identityName = input.attributes[fusionDisplayAttribute] ?? identityName
         assert(identityName, 'Identity name is required for account creation')
 
-        log.info(`Creating account ${identityName}...`)
+        log.info(`Creating account for identity: ${identityName}`)
+        log.debug('Step 1: Loading fusion accounts and initializing')
 
         await sources.fetchFusionAccounts()
         await attributes.initializeCounters()
         await fusion.preProcessFusionAccounts()
+        
+        log.debug('Step 2: Fetching identity information')
         const identity = await identities.fetchIdentityByName(identityName)
         assert(identity, `Identity not found: ${identityName}`)
         assert(identity.id, `Identity ID is missing for: ${identityName}`)
 
         const fusionIdentity = fusion.getFusionIdentity(identity.id)
         assert(fusionIdentity, `Fusion identity not found for identity ID: ${identity.id}`)
+        log.debug(`Found fusion identity: ${fusionIdentity.nativeIdentity}`)
 
         const actions = [...(input.attributes.actions ?? [])]
-        log.debug(`Processing ${actions.length} action(s) for account creation`)
+        log.info(`Step 3: Processing ${actions.length} action(s)`)
 
         for (const action of actions) {
-            log.debug(`Processing action: ${action}`)
+            log.debug(`Executing action: ${action}`)
             switch (action) {
                 case 'report':
                     await reportAction(fusionIdentity, AttributeChangeOp.Add, serviceRegistry)
+                    log.debug('Report action completed')
                     break
                 case 'fusion':
                     await fusionAction(fusionIdentity, AttributeChangeOp.Add, serviceRegistry)
+                    log.debug('Fusion action completed')
                     break
                 case 'correlate':
                     await correlateAction(fusionIdentity, AttributeChangeOp.Add, serviceRegistry)
+                    log.debug('Correlate action completed')
                     break
                 default:
                     log.crash(`Unsupported action: ${action}`)
             }
         }
 
+        log.debug('Step 4: Generating ISC account')
         const iscAccount = await fusion.getISCAccount(fusionIdentity)
         assert(iscAccount, 'Failed to generate ISC account from fusion identity')
 
         res.send(iscAccount)
-        log.info(`Account ${identityName} creation completed successfully`)
+        log.info(`✓ Account creation completed for ${identityName}`)
     } catch (error) {
         log.crash(`Failed to create account ${identityName}`, error)
     }

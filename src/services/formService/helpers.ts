@@ -1,5 +1,6 @@
 import { FusionAccount } from '../../model/account'
 import { OwnerDto } from 'sailpoint-api-client'
+import { logger } from '@sailpoint/connector-sdk'
 import { SourceService } from '../sourceService'
 import { assert } from '../../utils/assert'
 import { Candidate } from './types'
@@ -19,11 +20,16 @@ export const buildCandidateList = (fusionAccount: FusionAccount): Candidate[] =>
         assert(match.fusionIdentity, 'Fusion identity is required in match')
         assert(match.fusionIdentity.identityId, 'Fusion identity ID is required')
         const attrs: Record<string, any> = match.fusionIdentity.attributes || {}
+        // IMPORTANT: Use attributes.displayName - must match the SELECT element's label path:
+        // buildFormFields() uses SEARCH_V2 with label: 'attributes.displayName'
+        // Form conditions compare against this value, so it must be in sync.
+        const displayName = String(attrs.displayName || '')
+        if (!displayName) {
+            logger.error(`[formBuilder] Candidate identity ${match.fusionIdentity.identityId} is missing attributes.displayName. Form conditions may not work correctly.`)
+        }
         return {
             id: match.fusionIdentity.identityId,
-            // IMPORTANT: keep this aligned with the SELECT element's label path:
-            // buildFormFields() uses SEARCH_V2 with label: 'attributes.displayName'
-            name: match.fusionIdentity.displayName ?? '',
+            name: displayName,
             attributes: attrs,
             scores: match.scores || [],
         }

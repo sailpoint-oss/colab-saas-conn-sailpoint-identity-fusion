@@ -1,0 +1,41 @@
+id,firstName,lastName,fullName,email,phone,birthDate,hireDate,ssn,address,city,state,zipCode,country,department,title,managerId
+1,Robert,Johnson,Robert Johnson,robert.johnson@ryanindustries.com,(555) 234-5678,1985-06-15,2020-03-01,456-78-9012,1234 Corporate Drive,New York,NY,10001,US,Engineering,Senior Software Engineer,100
+2,Bob,Johnson,Bob Johnson,bob.j@ryanindustries.com,555.234.5678,15/06/1985,March 1 2020,456789012,1234 Corporate Dr.,New York,NY,10001,US,Engineering,Sr. Software Engineer,100
+3,Jennifer,Martinez,Jennifer Martinez,jennifer.martinez@ryanindustries.com,+1 (555) 345-6789,1990-04-22,2019-06-15,567-89-0123,2456 Innovation Way,Austin,TX,78701,US,Product,Product Manager,101
+4,Jenny,Martínez,Jenny Martínez,jenny.m@ryanindustries.com,1-555-345-6789,04/22/1990,June 15 2019,567890123,2456 Innovation Way,Austin,TX,78701,US,Product,Product Manager,101
+5,Michael,O'Brien,Michael O'Brien,michael.obrien@ryanindustries.com,(555) 456-7890,1988-11-30,2021-01-10,678-90-1234,789 Tech Boulevard,San Francisco,CA,94102,US,Engineering,Staff Engineer,100
+6,Mike,OBrien,Mike OBrien,mike.obrien@ryanindustries.com,555 456 7890,30-11-1988,Jan 10 2021,678901234,789 Tech Blvd,San Francisco,CA,94102,US,Engineering,Staff Engineer,100
+7,Sarah-Jane,Williams,Sarah-Jane Williams,sarah.williams@ryanindustries.com,+1-555-567-8901,1992-08-14,2020-09-01,789-01-2345,345 Market Street Apt 4B,Seattle,WA,98101,US,Design,Senior Designer,102
+8,Sarah,Williams,Sarah Williams,s.williams@ryanindustries.com,(555)567-8901,August 14 1992,2020-09-01,789012345,345 Market St #4B,Seattle,WA,98101,US,Design,Sr. Designer,102
+9,José,García,José García,jose.garcia@ryanindustries.com,555-678-9012,1986-02-28,2018-04-20,890-12-3456,567 Pine Avenue,Miami,FL,33101,US,Sales,Sales Director,103
+10,Joseph,Garcia,Joseph Garcia,joe.garcia@ryanindustries.com,+1 555 678 9012,28/02/1986,April 20 2018,890123456,567 Pine Ave,Miami,FL,33101,US,Sales,Director of Sales,103
+11,Catherine,MacLeod,Catherine MacLeod,catherine.macleod@ryanindustries.com,(555) 789-0123,1994-12-05,2022-02-15,901-23-4567,890 Highland Road,Boston,MA,02101,US,Marketing,Marketing Specialist,104
+12,Cathy,McLeod,Cathy McLeod,cathy.m@ryanindustries.com,555.789.0123,05/12/1994,Feb 15 2022,901234567,890 Highland Rd,Boston,MA,02101,US,Marketing,Marketing Specialist,104
+13,François,Dubois,François Dubois,francois.dubois@ryanindustries.com,1-555-890-1234,1989-07-19,2019-11-01,012-34-5678,123 Rue de la Tech,Portland,OR,97201,US,Engineering,Backend Developer,100
+14,Frank,DuBois,Frank DuBois,frank.dubois@ryanindustries.com,(555)890-1234,19-07-1989,November 1 2019,012345678,123 Rue De La Tech,Portland,OR,97201,US,Engineering,Backend Dev,100
+15,Elizabeth,McDonald,Elizabeth McDonald,elizabeth.mcdonald@ryanindustries.com,555 901 2345,1991-03-10,2020-07-01,123-45-6789,456 Oak Street,Chicago,IL,60601,US,Finance,Financial Analyst,105
+16,Liz,MacDonald,Liz MacDonald,liz.mcd@ryanindustries.com,+1-555-901-2345,10/03/1991,July 1 2020,123456789,456 Oak St,Chicago,IL,60601,US,Finance,Financial Analyst,105
+17,André,Lefèvre,André Lefèvre,andre.lefevre@ryanindustries.com,(555) 012-3456,1987-09-25,2017-05-15,234-56-7890,789 Boulevard Ouest,Denver,CO,80201,US,Legal,Legal Counsel,106
+18,Andrew,Lefevre,Andrew Lefevre,andrew.l@ryanindustries.com,555-012-3456,25/09/1987,May 15 2017,234567890,789 Boulevard Ouest,Denver,CO,80201,US,Legal,Legal Counsel,106
+19,Siobhán,Murphy,Siobhán Murphy,siobhan.murphy@ryanindustries.com,+1 555 123 4567,1993-01-18,2021-03-20,345-67-8901,234 Emerald Lane,Philadelphia,PA,19101,US,HR,HR Business Partner,107
+20,Chevonne,Murphy,Chevonne Murphy,chevonne.m@ryanindustries.com,(555) 123-4567,18-01-1993,March 20 2021,345678901,234 Emerald Ln,Philadelphia,PA,19101,US,HR,HR Partner,107
+21,William,van der Berg,William van der Berg,william.vanderberg@ryanindustries.com,555.234.5679,1984-05-07,2016-08-10,456-78-9013,567 Canal Street,Nashville,TN,37201,US,Operations,Operations Manager,108
+22,Bill,VanderBerg,Bill VanderBerg,bill.v@ryanindustries.com,1 555 234 5679,07/05/1984,Aug 10 2016,456789013,567 Canal St,Nashville,TN,37201,US,Operations,Ops Manager,108
+23,María-José,Rodriguez,María-José Rodriguez,mariajose.rodriguez@ryanindustries.com,(555)-345-6780,1995-10-12,2022-01-05,567-89-0124,890 Southwest Plaza,Phoenix,AZ,85001,US,Customer Success,Customer Success Manager,109
+24,Maria,Rodriguez,Maria Rodriguez,maria.r@ryanindustries.com,555 345 6780,12-10-1995,January 5 2022,567890124,890 SW Plaza,Phoenix,AZ,85001,US,Customer Success,CSM,109
+25,Christopher,O'Connor,Christopher O'Connor,chris.oconnor@ryanindustries.com,+1-555-456-7891,1990-06-30,2019-09-15,678-90-1235,123 Liberty Avenue,Atlanta,GA,30301,US,Engineering,DevOps Engineer,100
+26,Chris,OConnor,Chris OConnor,c.oconnor@ryanindustries.com,(555) 456-7891,30/06/1990,Sept 15 2019,678901235,123 Liberty Ave,Atlanta,GA,30301,US,Engineering,DevOps Eng,100
+27,Amélie,Beaumont,Amélie Beaumont,amelie.beaumont@ryanindustries.com,555 567 8902,1988-12-21,2018-02-28,789-01-2346,456 French Quarter Road,New Orleans,LA,70112,US,Design,UX Designer,102
+28,Emily,Beaumont,Emily Beaumont,emily.b@ryanindustries.com,1-555-567-8902,21/12/1988,February 28 2018,789012346,456 French Quarter Rd,New Orleans,LA,70112,US,Design,UX Designer,102
+29,Patrick,MacArthur,Patrick MacArthur,patrick.macarthur@ryanindustries.com,(555)678-9013,1986-04-03,2017-10-01,890-12-3457,789 Highland Drive,Minneapolis,MN,55401,US,Engineering,Solutions Architect,100
+30,Pat,McArthur,Pat McArthur,pat.mac@ryanindustries.com,555.678.9013,03-04-1986,October 1 2017,890123457,789 Highland Dr,Minneapolis,MN,55401,US,Engineering,Solutions Architect,100
+100,Eleanor,Chen,Eleanor Chen,eleanor.chen@ryanindustries.com,+1 555 789 0124,1982-08-16,2015-01-15,901-23-4568,1000 Executive Suite,New York,NY,10001,US,Executive,VP Engineering,
+101,Rebecca,Thompson,Rebecca Thompson,rebecca.thompson@ryanindustries.com,(555) 890-1235,1980-11-22,2014-03-01,012-34-5679,2000 Executive Plaza,Austin,TX,78701,US,Executive,VP Product,
+102,Daniel,Foster,Daniel Foster,daniel.foster@ryanindustries.com,555-901-2346,1983-09-08,2016-06-10,123-45-6790,3000 Design Center,Seattle,WA,98101,US,Executive,VP Design,
+103,Victoria,Santos,Victoria Santos,victoria.santos@ryanindustries.com,+1-555-012-3457,1981-03-14,2013-11-20,234-56-7891,4000 Sales Tower,Miami,FL,33101,US,Executive,VP Sales,
+104,Alexander,Wright,Alexander Wright,alexander.wright@ryanindustries.com,(555) 123-4568,1979-07-25,2012-05-05,345-67-8902,5000 Marketing Hub,Boston,MA,02101,US,Executive,VP Marketing,
+105,Margaret,Liu,Margaret Liu,margaret.liu@ryanindustries.com,555 234 5680,1984-02-18,2016-09-12,456-78-9014,6000 Finance Center,Chicago,IL,60601,US,Executive,CFO,
+106,Jonathan,Davis,Jonathan Davis,jonathan.davis@ryanindustries.com,1 555 345 6781,1978-12-30,2011-04-18,567-89-0125,7000 Legal Plaza,Denver,CO,80201,US,Executive,General Counsel,
+107,Amanda,Wilson,Amanda Wilson,amanda.wilson@ryanindustries.com,(555)-456-7892,1985-05-09,2017-02-22,678-90-1236,8000 HR Center,Philadelphia,PA,19101,US,Executive,VP HR,
+108,Richard,Taylor,Richard Taylor,richard.taylor@ryanindustries.com,555.567.8903,1977-10-11,2010-08-30,789-01-2347,9000 Operations Hub,Nashville,TN,37201,US,Executive,VP Operations,
+109,Rachel,Anderson,Rachel Anderson,rachel.anderson@ryanindustries.com,+1 555 678 9014,1986-06-27,2018-07-14,890-12-3458,10000 Customer Tower,Phoenix,AZ,85001,US,Executive,VP Customer Success,

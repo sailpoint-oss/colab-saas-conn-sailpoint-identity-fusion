@@ -162,7 +162,7 @@ export class FusionService {
     /**
      * Pre-process a single fusion account
      */
-    public async preProcessFusionAccount(account: Account): Promise<FusionAccount> {
+    public async preProcessFusionAccount(account: Account): Promise<FusionAccount | undefined> {
         assert(
             !this.fusionIdentityMap.has(account.nativeIdentity),
             `Fusion account found for ${account.nativeIdentity}. Should not process Fusion accounts more than once.`
@@ -170,6 +170,13 @@ export class FusionService {
 
         const fusionAccount = FusionAccount.fromFusionAccount(account)
         const key = this.attributes.getSimpleKey(fusionAccount)
+        
+        // Skip account if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
+        if (!key) {
+            this.log.info(`Skipped fusion account during pre-processing: ${fusionAccount.name} (${fusionAccount.nativeIdentity})`)
+            return undefined
+        }
+        
         fusionAccount.setKey(key)
 
         this.setFusionAccount(fusionAccount)
@@ -193,10 +200,16 @@ export class FusionService {
      * from the queue to prevent duplicate processing in later phases.
      * 
      * @param account - The fusion account from the platform
-     * @returns Processed FusionAccount with all layers applied
+     * @returns Processed FusionAccount with all layers applied, or undefined if account was skipped
      */
-    public async processFusionAccount(account: Account): Promise<FusionAccount> {
+    public async processFusionAccount(account: Account): Promise<FusionAccount | undefined> {
         const fusionAccount = await this.preProcessFusionAccount(account)
+        
+        // If preProcessFusionAccount returned undefined, the account was skipped
+        if (!fusionAccount) {
+            return undefined
+        }
+        
         assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
         const identityId = account.identityId!
 
@@ -302,6 +315,13 @@ export class FusionService {
             await this.attributes.refreshAttributes(fusionAccount)
 
             const key = this.attributes.getSimpleKey(fusionAccount)
+            
+            // Skip identity if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
+            if (!key) {
+                this.log.info(`Skipped identity during processing: ${identity.name} (${identityId})`)
+                return
+            }
+            
             fusionAccount.setKey(key)
 
             // Set display attribute using the attributes getter
@@ -379,6 +399,16 @@ export class FusionService {
 
         if (fusionDecision.newIdentity) {
             const key = this.attributes.getSimpleKey(fusionAccount)
+            
+            // Skip if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
+            if (!key) {
+                this.log.info(
+                    `Skipped fusion decision for new identity - missing unique ID: ` +
+                    `account ${fusionDecision.account.id}`
+                )
+                return
+            }
+            
             fusionAccount.setKey(key)
 
             this.setFusionAccount(fusionAccount)
@@ -484,6 +514,15 @@ export class FusionService {
             this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
             await this.attributes.refreshUniqueAttributes(fusionAccount)
             const key = this.attributes.getSimpleKey(fusionAccount)
+            
+            // Skip if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
+            if (!key) {
+                this.log.info(
+                    `Skipped non-matching account - missing unique ID: ${account.name} [${fusionAccount.sourceName}]`
+                )
+                return
+            }
+            
             fusionAccount.setKey(key)
             fusionAccount.setUnmatched()
 
@@ -681,7 +720,7 @@ export class FusionService {
             const fusionMatches = fusionAccount.fusionMatches
             if (fusionMatches && fusionMatches.length > 0) {
                 const matches = fusionMatches.map((match) => ({
-                    identityName: match.fusionIdentity.name || match.fusionIdentity.displayName || 'Unknown',
+                    identityName: String(match.fusionIdentity.attributes?.displayName || match.fusionIdentity.displayName || match.fusionIdentity.name || 'Unknown'),
                     identityId: match.fusionIdentity.identityId,
                     identityUrl: this.urlContext.identity(match.fusionIdentity.identityId),
                     isMatch: true,

@@ -95,6 +95,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     config.sources = config.sources ?? []
     config.fusionFormAttributes = config.fusionFormAttributes ?? []
     config.matchingConfigs = config.matchingConfigs ?? []
+    config.trim = config.trim ?? false
 
     // ============================================================================
     // Source Settings defaults
@@ -120,6 +121,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     config.resetProcessingFlag = config.resetProcessingFlag ?? false
     config.deleteEmpty = config.deleteEmpty ?? false
     config.forceAttributeRefresh = config.forceAttributeRefresh ?? false
+    config.skipAccountsWithMissingId = config.skipAccountsWithMissingId ?? false
     config.maxHistoryMessages = config.maxHistoryMessages ?? 10
 
     // ============================================================================

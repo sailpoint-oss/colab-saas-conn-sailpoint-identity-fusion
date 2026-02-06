@@ -1,0 +1,36 @@
+id,firstName,lastName,fullName,email,phone,birthDate,hireDate,ssn,address,city,state,zipCode,country,department,title,managerId
+1,Gordon,Freeman,Gordon Freeman,gordon.freeman@blackmesa.com,(505) 555-0101,1973-05-15,1998-05-15,123-45-6789,1 Sector C Complex,Los Alamos,NM,87544,US,Research,Research Associate,200
+2,G.,Freeman,G. Freeman,g.freeman@blackmesa.com,505.555.0101,15/05/1973,May 15 1998,123456789,1 Sector C Complex,Los Alamos,NM,87544,US,Research,Research Associate,200
+3,Alyx,Vance,Alyx Vance,alyx.vance@blackmesa.com,+1 (505) 555-0102,1990-11-22,2008-03-01,234-56-7890,15 Lambda Laboratory,Los Alamos,NM,87544,US,Engineering,Systems Engineer,201
+4,A.,Vance,A. Vance,a.vance@blackmesa.com,1-505-555-0102,22/11/1990,March 1 2008,234567890,15 Lambda Lab,Los Alamos,NM,87544,US,Engineering,Systems Eng,201
+5,Isaac,Kleiner,Isaac Kleiner,isaac.kleiner@blackmesa.com,(505) 555-0103,1948-08-10,1980-06-20,345-67-8901,25 Anomalous Materials Division,Los Alamos,NM,87544,US,Research,Senior Scientist,200
+6,I.,Kleiner,I. Kleiner,i.kleiner@blackmesa.com,505 555 0103,10-08-1948,June 20 1980,345678901,25 Anomalous Materials Div,Los Alamos,NM,87544,US,Research,Sr. Scientist,200
+7,Barney,Calhoun,Barney Calhoun,barney.calhoun@blackmesa.com,+1-505-555-0104,1985-03-17,2005-01-10,456-78-9012,45 Security Checkpoint Alpha,Los Alamos,NM,87544,US,Security,Security Officer,202
+8,B.,Calhoun,B. Calhoun,b.calhoun@blackmesa.com,(505)555-0104,17/03/1985,Jan 10 2005,456789012,45 Security CP Alpha,Los Alamos,NM,87544,US,Security,Security Officer,202
+9,Eli,Vance,Eli Vance,eli.vance@blackmesa.com,505-555-0105,1952-12-03,1983-09-15,567-89-0123,60 Quantum Mechanics Laboratory,Los Alamos,NM,87544,US,Research,Lead Physicist,200
+10,E.,Vance,E. Vance,e.vance@blackmesa.com,+1 505 555 0105,03/12/1952,September 15 1983,567890123,60 Quantum Mechanics Lab,Los Alamos,NM,87544,US,Research,Lead Physicist,200
+11,Judith,Mossman,Judith Mossman,judith.mossman@blackmesa.com,(505) 555-0106,1975-07-28,2000-04-01,678-90-1234,75 Xen Research Wing,Los Alamos,NM,87544,US,Research,Research Scientist,200
+12,J.,Mossman,J. Mossman,j.mossman@blackmesa.com,505.555.0106,28-07-1975,April 1 2000,678901234,75 Xen Research Wng,Los Alamos,NM,87544,US,Research,Research Scientist,200
+13,Wallace,Breen,Wallace Breen,wallace.breen@blackmesa.com,1-505-555-0107,1946-11-15,1975-01-01,789-01-2345,100 Administration Complex,Los Alamos,NM,87544,US,Executive,Administrator,
+14,W.,Breen,W. Breen,w.breen@blackmesa.com,(505)555-0107,15/11/1946,January 1 1975,789012345,100 Admin Complex,Los Alamos,NM,87544,US,Executive,Administrator,
+15,Arne,Magnusson,Arne Magnusson,arne.magnusson@blackmesa.com,505 555 0108,1958-04-22,1987-06-12,890-12-3456,120 Particle Physics Lab,Los Alamos,NM,87544,US,Research,Senior Researcher,200
+16,A.,Magnusson,A. Magnusson,a.magnusson@blackmesa.com,+1-505-555-0108,22/04/1958,June 12 1987,890123456,120 Particle Physics Laboratory,Los Alamos,NM,87544,US,Research,Sr. Researcher,200
+17,Colette,Green,Colette Green,colette.green@blackmesa.com,(505) 555-0109,1982-09-30,2003-08-20,901-23-4567,135 Biological Research Unit,Los Alamos,NM,87544,US,Research,Biologist,200
+18,C.,Green,C. Green,c.green@blackmesa.com,505-555-0109,30-09-1982,Aug 20 2003,901234567,135 Bio Research Unit,Los Alamos,NM,87544,US,Research,Biologist,200
+19,Richard,Keller,Richard Keller,richard.keller@blackmesa.com,+1 505 555 0110,1970-02-14,1995-03-05,012-34-5678,150 Materials Testing Facility,Los Alamos,NM,87544,US,Engineering,Test Engineer,201
+20,Dick,Keller,Dick Keller,r.keller@blackmesa.com,(505) 555-0110,14/02/1970,March 5 1995,012345678,150 Materials Testing Fac,Los Alamos,NM,87544,US,Engineering,Test Eng,201
+21,Rosenberg,Harold,Harold Rosenberg,h.rosenberg@blackmesa.com,505.555.0111,1955-06-18,1985-11-22,123-45-6790,165 Quantum Tunneling Lab,Los Alamos,NM,87544,US,Research,Quantum Physicist,200
+22,Harold,Rosenberg,Harold Rosenberg,harold.r@blackmesa.com,1 505 555 0111,18-06-1955,November 22 1985,123456790,165 Quantum Tunneling Laboratory,Los Alamos,NM,87544,US,Research,Quantum Physicist,200
+23,Gina,Cross,Gina Cross,gina.cross@blackmesa.com,(505)-555-0112,1977-10-05,1999-07-10,234-56-7891,180 Holographic Imaging Center,Los Alamos,NM,87544,US,Research,Holography Specialist,200
+24,G.,Cross,G. Cross,g.cross@blackmesa.com,505 555 0112,05-10-1977,July 10 1999,234567891,180 Holographic Imaging Ctr,Los Alamos,NM,87544,US,Research,Holography Specialist,200
+25,Colette,Colette,Colette Colette,colette@blackmesa.com,+1-505-555-0113,1968-12-25,1992-12-15,345-67-8902,195 Teleportation Research,Los Alamos,NM,87544,US,Research,Teleportation Scientist,200
+26,C.,Colette,C. Colette,c.colette@blackmesa.com,(505) 555-0113,25/12/1968,Dec 15 1992,345678902,195 Teleportation Rsch,Los Alamos,NM,87544,US,Research,Teleportation Scientist,200
+27,Walter,Bennet,Walter Bennet,walter.bennet@blackmesa.com,505 555 0114,1963-03-12,1990-02-28,456-78-9013,210 Containment Facility,Los Alamos,NM,87544,US,Operations,Facility Manager,203
+28,Walt,Bennett,Walt Bennett,w.bennet@blackmesa.com,1-505-555-0114,12/03/1963,February 28 1990,456789013,210 Containment Fac,Los Alamos,NM,87544,US,Operations,Facilities Mgr,203
+29,Otis,Laurey,Otis Laurey,otis.laurey@blackmesa.com,(505)555-0115,1980-08-08,2002-05-01,567-89-0124,225 Maintenance Department,Los Alamos,NM,87544,US,Maintenance,Maintenance Tech,204
+30,O.,Laurey,O. Laurey,o.laurey@blackmesa.com,505.555.0115,08-08-1980,May 1 2002,567890124,225 Maintenance Dept,Los Alamos,NM,87544,US,Maintenance,Maint Tech,204
+200,Magnusson,Erik,Erik Magnusson,e.magnusson@blackmesa.com,+1 505 555 0200,1950-01-20,1978-04-01,678-90-1235,1000 Research Directorate,Los Alamos,NM,87544,US,Executive,Director of Research,
+201,Cubbage,Colonel,Colonel Cubbage,c.cubbage@blackmesa.com,(505) 555-0201,1955-07-14,1982-09-10,789-01-2346,2000 Engineering Division,Los Alamos,NM,87544,US,Executive,Director of Engineering,
+202,Mitchell,Odessa,Odessa Mitchell,o.mitchell@blackmesa.com,505-555-0202,1960-03-25,1988-06-15,890-12-3457,3000 Security Headquarters,Los Alamos,NM,87544,US,Executive,Chief Security Officer,
+203,Griggs,Stanley,Stanley Griggs,s.griggs@blackmesa.com,+1-505-555-0203,1958-11-08,1986-12-20,901-23-4568,4000 Operations Center,Los Alamos,NM,87544,US,Executive,Director of Operations,
+204,Sheckley,Randy,Randy Sheckley,r.sheckley@blackmesa.com,(505) 555-0204,1962-05-17,1990-03-18,012-34-5679,5000 Maintenance Complex,Los Alamos,NM,87544,US,Executive,Maintenance Director,
