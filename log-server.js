@@ -21,6 +21,9 @@ const colors = {
     warn: '\x1b[33m',     // Yellow
     error: '\x1b[31m',    // Red
     
+    // Service>method origin color
+    blue: '\x1b[34m',
+    
     // Default text
     white: '\x1b[37m'
 };
@@ -28,11 +31,11 @@ const colors = {
 // Colorize log messages
 const colorizeLog = (message) => {
     // Match pattern: HH:MM:SS [LEVEL] origin: message
-    // Supports both [ServiceName>methodName] and ServiceName>methodName formats
-    const match = message.match(/^(\d{2}:\d{2}:\d{2})\s+\[(\w+)\s*\]\s+(.*)$/);
+    // Captures spacing after ] to preserve connector's alignment padding
+    const match = message.match(/^(\d{2}:\d{2}:\d{2})\s+\[(\w+)\](\s+)(.*)$/);
     
     if (match) {
-        const [, timestamp, level, rest] = match;
+        const [, timestamp, level, spacing, rest] = match;
         const levelUpper = level.toUpperCase();
         const levelColor = colors[level.toLowerCase()] || colors.white;
         
@@ -40,18 +43,18 @@ const colorizeLog = (message) => {
         const operationMatch = rest.match(/^(\[[^\]]+\])(.*)$/);
         if (operationMatch) {
             const [, operation, remainder] = operationMatch;
-            return `${colors.dim}${timestamp}${colors.reset} ${levelColor}[${levelUpper}]${colors.reset} ${colors.cyan}${colors.bright}${operation}${colors.reset}${remainder}`;
+            return `${colors.dim}${timestamp}${colors.reset} ${levelColor}[${levelUpper}]${colors.reset}${spacing}${colors.cyan}${colors.bright}${operation}${colors.reset}${remainder}`;
         }
         
-        // Check if rest starts with Service>method pattern (magenta)
+        // Check if rest starts with Service>method pattern (blue)
         const serviceMatch = rest.match(/^([^:]+>[^:]+)(.*)$/);
         if (serviceMatch) {
             const [, service, remainder] = serviceMatch;
-            return `${colors.dim}${timestamp}${colors.reset} ${levelColor}[${levelUpper}]${colors.reset} ${colors.debug}${service}${colors.reset}${remainder}`;
+            return `${colors.dim}${timestamp}${colors.reset} ${levelColor}[${levelUpper}]${colors.reset}${spacing}${colors.blue}${service}${colors.reset}${remainder}`;
         }
         
         // Default formatting if no special origin pattern
-        return `${colors.dim}${timestamp}${colors.reset} ${levelColor}[${levelUpper}]${colors.reset} ${rest}`;
+        return `${colors.dim}${timestamp}${colors.reset} ${levelColor}[${levelUpper}]${colors.reset}${spacing}${rest}`;
     }
     
     // If no match, return as-is
