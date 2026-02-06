@@ -435,7 +435,7 @@ export class AttributeService {
     /**
      * Evaluate template expression and apply transformations
      */
-    private evaluateTemplate(definition: AttributeDefinition, context: RenderContext): string | undefined {
+    private evaluateTemplate(definition: AttributeDefinition, context: RenderContext, accountName?: string): string | undefined {
         if (!definition.expression) {
             this.log.error(`Expression is required for attribute ${definition.name}`)
             return undefined
@@ -447,18 +447,13 @@ export class AttributeService {
             return undefined
         }
 
-        this.log.debug(`Template evaluation result - attributeName: ${definition.name}, rawValue: ${value}`)
-
         // Apply transformations
         if (definition.trim) value = value.trim()
         if (definition.case) value = switchCase(value, definition.case)
         if (definition.spaces) value = removeSpaces(value)
         if (definition.normalize) value = normalize(value)
 
-        this.log.debug(
-            `Final attribute value - attributeName: ${definition.name}, finalValue: ${value}, ` +
-            `transformations: trim=${definition.trim}, case=${definition.case}, spaces=${definition.spaces}, normalize=${definition.normalize}`
-        )
+        this.log.debug(`[${accountName}] ${definition.name} = ${value}`)
 
         return value
     }
@@ -471,7 +466,7 @@ export class AttributeService {
         fusionAccount: FusionAccount
     ): Promise<string | undefined> {
         const context = this.buildVelocityContext(fusionAccount)
-        return this.evaluateTemplate(definition, context)
+        return this.evaluateTemplate(definition, context, fusionAccount.name)
     }
 
     /**
@@ -488,7 +483,7 @@ export class AttributeService {
         const counterValue = await counterFn()
         context.counter = padNumber(counterValue, digits)
 
-        return this.evaluateTemplate(definition, context)
+        return this.evaluateTemplate(definition, context, fusionAccount.name)
     }
 
     /**
@@ -514,7 +509,7 @@ export class AttributeService {
 
             // Try to generate unique value
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                const value = this.evaluateTemplate(definition, context)
+                const value = this.evaluateTemplate(definition, context, fusionAccount.name)
                 if (!value) return undefined
 
                 // Check uniqueness

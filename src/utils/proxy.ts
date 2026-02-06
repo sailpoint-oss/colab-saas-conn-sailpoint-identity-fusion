@@ -172,9 +172,9 @@ export const proxy: CommandHandler = async (context, input, res) => {
                     logger.info(`Proxy sent ${sentCount} valid objects from array`)
                     return
                 } else {
-                    // Single object - skip if empty or invalid
-                    if (!isValidObject(parsed)) {
-                        logger.debug(`Skipping empty/invalid single object`)
+                    // Single object - send even if empty (e.g. test connection returns {})
+                    if (parsed === null || parsed === undefined) {
+                        logger.debug(`Skipping null/undefined single object`)
                         return
                     }
 
