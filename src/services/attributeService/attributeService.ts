@@ -28,6 +28,7 @@ export class AttributeService {
     private attributeDefinitionConfig: AttributeDefinition[] = []
     private stateWrapper?: StateWrapper
     private forceAttributeRefresh: boolean
+    private readonly skipAccountsWithMissingId: boolean
     private readonly attributeMaps?: AttributeMap[]
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly sourceConfigs: SourceConfig[]
@@ -50,6 +51,7 @@ export class AttributeService {
         this.sourceConfigs = config.sources
         this.maxAttempts = config.maxAttempts
         this.forceAttributeRefresh = config.forceAttributeRefresh
+        this.skipAccountsWithMissingId = config.skipAccountsWithMissingId
         // Clone attribute definitions into an internal array so we never touch
         // config.attributeDefinitions after construction, and always have a values Set.
         this.attributeDefinitionConfig =
@@ -245,7 +247,7 @@ export class AttributeService {
                 delete fusionAccount.attributes[def.name]
             })
         }
-        await this._refreshAttributes(fusionAccount, allDefinitions)
+        await this.applyAttributeDefinitions(fusionAccount, allDefinitions)
     }
 
     /**
@@ -260,7 +262,7 @@ export class AttributeService {
         const allDefinitions = this.attributeDefinitionConfig
         const nonUniqueAttributeDefinitions = allDefinitions.filter((x) => !isUniqueAttribute(x))
 
-        await this._refreshAttributes(fusionAccount, nonUniqueAttributeDefinitions)
+        await this.applyAttributeDefinitions(fusionAccount, nonUniqueAttributeDefinitions)
     }
 
     /**
@@ -278,7 +280,7 @@ export class AttributeService {
             def.refresh = true
         })
 
-        await this._refreshAttributes(fusionAccount, uniqueAttributeDefinitions)
+        await this.applyAttributeDefinitions(fusionAccount, uniqueAttributeDefinitions)
     }
 
     /**
@@ -341,13 +343,27 @@ export class AttributeService {
 
     /**
      * Generate a simple key for a fusion account
+     * @returns SimpleKeyType if successful, undefined if skipAccountsWithMissingId is enabled and the ID is missing
      */
-    public getSimpleKey(fusionAccount: FusionAccount): SimpleKeyType {
+    public getSimpleKey(fusionAccount: FusionAccount): SimpleKeyType | undefined {
         const { fusionIdentityAttribute } = this.schemas
-        const uniqueId = (fusionAccount.attributes[fusionIdentityAttribute] as string) ?? fusionAccount.nativeIdentity
-        assert(uniqueId, `Unique ID is required for simple key`)
 
-        return SimpleKey(uniqueId)
+        const uniqueId = fusionAccount.attributes[fusionIdentityAttribute] as string | undefined
+
+        // If skipAccountsWithMissingId is enabled and the unique ID is missing, return undefined
+        if (this.skipAccountsWithMissingId && !uniqueId) {
+            this.log.warn(
+                `Skipping account ${fusionAccount.name} (${fusionAccount.nativeIdentity}): ` +
+                `Missing value for fusion identity attribute '${fusionIdentityAttribute}'`
+            )
+            return undefined
+        }
+
+        // Default behavior: fall back to nativeIdentity if fusionIdentityAttribute is not present
+        const finalId = uniqueId ?? fusionAccount.nativeIdentity
+        assert(finalId, `Unique ID is required for simple key`)
+
+        return SimpleKey(finalId)
     }
 
     /**
@@ -417,52 +433,49 @@ export class AttributeService {
     // ------------------------------------------------------------------------
 
     /**
-     * Generate attribute value by evaluating the template expression
+     * Evaluate template expression and apply transformations
      */
-    private generateAttributeValue(definition: AttributeDefinition, attributes: RenderContext): string | undefined {
+    private evaluateTemplate(definition: AttributeDefinition, context: RenderContext): string | undefined {
         if (!definition.expression) {
             this.log.error(`Expression is required for attribute ${definition.name}`)
             return undefined
         }
 
-        let value = evaluateVelocityTemplate(definition.expression, attributes, definition.maxLength)
-        if (value) {
-            this.log.debug(`Template evaluation result - attributeName: ${definition.name}, rawValue: ${value}`)
-
-            if (definition.case) {
-                value = switchCase(value, definition.case)
-            }
-            if (definition.spaces) {
-                value = removeSpaces(value)
-            }
-            if (definition.normalize) {
-                value = normalize(value)
-            }
-            this.log.debug(
-                `Final attribute value after transformations - attributeName: ${definition.name}, finalValue: ${value}, transformations: case=${definition.case}, spaces=${definition.spaces}, normalize=${definition.normalize}`
-            )
-        } else {
+        let value = evaluateVelocityTemplate(definition.expression, context, definition.maxLength)
+        if (!value) {
             this.log.error(`Failed to evaluate velocity template for attribute ${definition.name}`)
             return undefined
         }
+
+        this.log.debug(`Template evaluation result - attributeName: ${definition.name}, rawValue: ${value}`)
+
+        // Apply transformations
+        if (definition.trim) value = value.trim()
+        if (definition.case) value = switchCase(value, definition.case)
+        if (definition.spaces) value = removeSpaces(value)
+        if (definition.normalize) value = normalize(value)
+
+        this.log.debug(
+            `Final attribute value - attributeName: ${definition.name}, finalValue: ${value}, ` +
+            `transformations: trim=${definition.trim}, case=${definition.case}, spaces=${definition.spaces}, normalize=${definition.normalize}`
+        )
 
         return value
     }
 
     /**
-     * Generate a normal attribute value from a definition
+     * Generate a normal attribute value
      */
     private async generateNormalAttribute(
         definition: AttributeDefinition,
         fusionAccount: FusionAccount
     ): Promise<string | undefined> {
         const context = this.buildVelocityContext(fusionAccount)
-        return this.generateAttributeValue(definition, context)
+        return this.evaluateTemplate(definition, context)
     }
 
     /**
      * Generate a counter-based attribute value
-     * Counters are initialized in accountList via initializeCounters() before use
      */
     private async generateCounterAttribute(
         definition: AttributeDefinition,
@@ -475,13 +488,11 @@ export class AttributeService {
         const counterValue = await counterFn()
         context.counter = padNumber(counterValue, digits)
 
-        // Counter attributes don't need uniqueness checking, just generate the value
-        return this.generateAttributeValue(definition, context)
+        return this.evaluateTemplate(definition, context)
     }
 
     /**
-     * Generate a unique attribute value with thread-safe generation and registration
-     * The entire process (fetch values -> generate -> check -> register) is protected by a lock
+     * Generate a unique attribute value with retry logic
      */
     private async generateUniqueAttribute(
         definition: AttributeDefinition,
@@ -489,158 +500,121 @@ export class AttributeService {
     ): Promise<string | undefined> {
         const context = this.buildVelocityContext(fusionAccount)
         const lockKey = `${definition.type}:${definition.name}`
+        
         return await this.locks.withLock(lockKey, async () => {
-            return this.generateUniqueValueWithCounter(definition, context)
+            const registeredValues = definition.values!
+            const counter = StateWrapper.getCounter()
+            const maxAttempts = this.maxAttempts ?? 100
+
+            // Ensure expression has counter variable
+            if (definition.expression && !definition.expression.includes('$counter') && !definition.expression.includes('${counter}')) {
+                definition.expression = `${definition.expression}$counter`
+            }
+            context.counter = ''
+
+            // Try to generate unique value
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                const value = this.evaluateTemplate(definition, context)
+                if (!value) return undefined
+
+                // Check uniqueness
+                if (!registeredValues.has(value)) {
+                    registeredValues.add(value)
+                    this.log.debug(`Generated unique value for attribute ${definition.name}: ${value}`)
+                    return value
+                }
+
+                // Collision - increment counter and retry
+                this.log.debug(`Value ${value} already exists for unique attribute: ${definition.name}`)
+                const digits = definition.digits ?? 1
+                context.counter = padNumber(counter(), digits)
+                this.log.debug(`Regenerating unique attribute: ${definition.name} (attempt ${attempt + 1})`)
+            }
+
+            this.log.error(`Failed to generate unique value for attribute ${definition.name} after ${maxAttempts} attempts`)
+            return undefined
         })
     }
 
     /**
-     * Generate a unique value by iterating with a counter until uniqueness is achieved
-     */
-    private generateUniqueValueWithCounter(
-        definition: AttributeDefinition,
-        context: RenderContext
-    ): string | undefined {
-        const registeredValues = definition.values!
-        const counter = StateWrapper.getCounter()
-        const maxAttempts = this.maxAttempts ?? 100
-
-        this.ensureExpressionHasCounter(definition)
-        context.counter = ''
-
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            const generatedValue = this.generateAttributeValue(definition, context)
-            if (!generatedValue) {
-                return undefined
-            }
-
-            if (this.isValueUnique(generatedValue, registeredValues, definition.name)) {
-                registeredValues.add(generatedValue)
-                this.log.debug(
-                    `Generated and registered unique value for attribute ${definition.name}: ${generatedValue}`
-                )
-                return generatedValue
-            }
-
-            // Value exists - increment counter and try again
-            this.incrementCounterForNextAttempt(definition, context, counter, attempt + 1)
-        }
-
-        this.log.error(
-            `Failed to generate unique value for attribute ${definition.name} after ${maxAttempts} attempts`
-        )
-        return undefined
-    }
-
-    /**
-     * Ensure the attribute definition expression includes a counter variable
-     */
-    private ensureExpressionHasCounter(definition: AttributeDefinition): void {
-        if (!definition.expression) {
-            return
-        }
-        const hasCounter =
-            definition.expression.includes('$counter') || definition.expression.includes('${counter}')
-        if (!hasCounter) {
-            definition.expression = `${definition.expression}$counter`
-        }
-    }
-
-    /**
-     * Check if a value is unique against registered values
-     */
-    private isValueUnique(value: string, registeredValues: Set<string>, attributeName: string): boolean {
-        if (!registeredValues.has(value)) {
-            return true
-        }
-        // Value already exists - log for debugging
-        this.log.debug(`Value ${value} already exists for unique attribute: ${attributeName}`)
-        return false
-    }
-
-    /**
-     * Increment the counter in context for the next generation attempt
-     */
-    private incrementCounterForNextAttempt(
-        definition: AttributeDefinition,
-        context: RenderContext,
-        counter: () => number,
-        attemptNumber: number
-    ): void {
-        const digits = definition.digits ?? 1
-        const counterValue = counter()
-        context.counter = padNumber(counterValue, digits)
-        this.log.debug(
-            `Regenerating unique attribute: ${definition.name} (attempt ${attemptNumber})`
-        )
-    }
-
-    /**
-     * Generate a UUID attribute value with thread-safe generation and registration
-     * UUIDs don't use counters - just keep generating new UUIDs until we find one that's unique
-     * The entire process (fetch values -> generate -> check -> register) is protected by a lock
+     * Generate a UUID attribute value
      */
     private async generateUUIDAttribute(definition: AttributeDefinition): Promise<string | undefined> {
         const lockKey = `${definition.type}:${definition.name}`
+        
         return await this.locks.withLock(lockKey, async () => {
-            return this.generateUniqueUUID(definition)
+            const registeredValues = definition.values!
+            const maxAttempts = this.maxAttempts ?? 100
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                const value = uuidv4()
+                if (!value) return undefined
+
+                if (!registeredValues.has(value)) {
+                    registeredValues.add(value)
+                    this.log.debug(`Generated uuid value for attribute ${definition.name}: ${value}`)
+                    return value
+                }
+
+                // UUID collision (extremely rare)
+                this.log.debug(`UUID collision for attribute ${definition.name}, regenerating (attempt ${attempt}): ${value}`)
+            }
+
+            this.log.error(`Failed to generate unique uuid for attribute ${definition.name} after ${maxAttempts} attempts`)
+            return undefined
         })
     }
 
+    // ------------------------------------------------------------------------
+    // Private Attribute Processing Flow
+    // ------------------------------------------------------------------------
+
     /**
-     * Generate a unique UUID by iterating until uniqueness is achieved
+     * Apply attribute definitions to a fusion account
+     * Generates attribute values based on their type and configuration
      */
-    private generateUniqueUUID(definition: AttributeDefinition): string | undefined {
-        const registeredValues = definition.values!
-        const maxAttempts = this.maxAttempts ?? 100
-
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            const generatedValue = uuidv4()
-            if (!generatedValue) {
-                return undefined
-            }
-
-            if (!registeredValues.has(generatedValue)) {
-                registeredValues.add(generatedValue)
-                this.log.debug(
-                    `Generated and registered uuid value for attribute ${definition.name}: ${generatedValue}`
+    private async applyAttributeDefinitions(
+        fusionAccount: FusionAccount,
+        attributeDefinitions: AttributeDefinition[]
+    ): Promise<void> {
+        for (const definition of attributeDefinitions) {
+            try {
+                await this.generateAttributeForAccount(definition, fusionAccount)
+            } catch (error) {
+                this.log.error(
+                    `Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`,
+                    (error as any).message
                 )
-                return generatedValue
+                // Re-throw for unique attributes to prevent duplicate values
+                if (isUniqueAttribute(definition)) {
+                    throw error
+                }
             }
-
-            // UUID collision detected (extremely rare) - regenerate
-            this.log.debug(
-                `UUID collision detected for attribute ${definition.name}, regenerating (attempt ${attempt}): ${generatedValue}`
-            )
         }
-
-        this.log.error(
-            `Failed to generate unique uuid value for attribute ${definition.name} after ${maxAttempts} attempts`
-        )
-        return undefined
     }
 
-    // ------------------------------------------------------------------------
-    // Private Attribute Generation Orchestration
-    // ------------------------------------------------------------------------
-
     /**
-     * Generate attribute value for a single attribute definition and update fusionAccount.attributeBag.current
-     * For unique/uuid attributes, the entire generation process (fetch values, generate, check, register) is protected by a lock
+     * Generate a single attribute for an account
      */
-    private async generateAttribute(definition: AttributeDefinition, fusionAccount: FusionAccount): Promise<void> {
+    private async generateAttributeForAccount(
+        definition: AttributeDefinition,
+        fusionAccount: FusionAccount
+    ): Promise<void> {
         const { name, refresh } = definition
 
-        if (this.shouldSkipAttributeGeneration(name, refresh, fusionAccount)) {
+        // Skip if attribute exists and refresh is not requested
+        if (!this.forceAttributeRefresh && fusionAccount.attributes[name] !== undefined && !refresh) {
             return
         }
 
-        const adjustedDefinition = this.adjustDefinitionForContext(definition, fusionAccount)
-        if (!adjustedDefinition) {
-            return // Early return handled in adjustDefinitionForContext
+        // Handle special attributes
+        const adjustedDef = this.prepareDefinitionForGeneration(definition, fusionAccount)
+        if (!adjustedDef) {
+            return // Attribute was handled directly
         }
 
-        const value = await this.generateAttributeByType(adjustedDefinition, fusionAccount)
+        // Generate value based on type
+        const value = await this.generateValueByType(adjustedDef, fusionAccount)
 
         if (value !== undefined) {
             fusionAccount.attributes[name] = value
@@ -648,27 +622,9 @@ export class AttributeService {
     }
 
     /**
-     * Check if attribute generation should be skipped
+     * Prepare definition for generation, handling special cases
      */
-    private shouldSkipAttributeGeneration(
-        attributeName: string,
-        refresh: boolean | undefined,
-        fusionAccount: FusionAccount
-    ): boolean {
-        // If forceAttributeRefresh is enabled, never skip generation
-        if (this.forceAttributeRefresh) {
-            return false
-        }
-
-        const hasAttribute = fusionAccount.attributes[attributeName] !== undefined
-
-        return !!(hasAttribute && !refresh)
-    }
-
-    /**
-     * Adjust attribute definition based on context (command type, special attributes)
-     */
-    private adjustDefinitionForContext(
+    private prepareDefinitionForGeneration(
         definition: AttributeDefinition,
         fusionAccount: FusionAccount
     ): AttributeDefinition | null {
@@ -676,13 +632,13 @@ export class AttributeService {
         const { fusionIdentityAttribute, fusionDisplayAttribute } = this.schemas
         const isAccountList = this.commandType === StandardCommand.StdAccountList
 
-        // Handle special case for display attribute
+        // Display attribute: use account name directly (non-list commands only)
         if (name === fusionDisplayAttribute && isUniqueAttribute(definition) && !isAccountList) {
             fusionAccount.attributes[name] = fusionAccount.name!
-            return null // Signal to skip further processing
+            return null
         }
 
-        // Handle special case for identity attribute - convert to UUID
+        // Identity attribute: force UUID generation (non-list commands only)
         if (name === fusionIdentityAttribute && isUniqueAttribute(definition) && !isAccountList) {
             return {
                 name,
@@ -690,6 +646,7 @@ export class AttributeService {
                 normalize: false,
                 spaces: false,
                 refresh: false,
+                trim: false,
             }
         }
 
@@ -697,9 +654,9 @@ export class AttributeService {
     }
 
     /**
-     * Generate attribute value based on its type
+     * Generate attribute value based on type
      */
-    private async generateAttributeByType(
+    private async generateValueByType(
         definition: AttributeDefinition,
         fusionAccount: FusionAccount
     ): Promise<string | undefined> {
@@ -712,26 +669,6 @@ export class AttributeService {
                 return await this.generateUUIDAttribute(definition)
             default:
                 return await this.generateNormalAttribute(definition, fusionAccount)
-        }
-    }
-
-    /**
-     * Refresh attributes for a fusion account based on the provided definitions
-     */
-    private async _refreshAttributes(
-        fusionAccount: FusionAccount,
-        attributeDefinitions: AttributeDefinition[]
-    ): Promise<void> {
-        // Generate each attribute definition
-        for (const definition of attributeDefinitions) {
-            try {
-                await this.generateAttribute(definition, fusionAccount)
-            } catch (error) {
-                this.log.error(`Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`, (error as any).message)
-                if (isUniqueAttribute(definition)) {
-                    throw error
-                }
-            }
         }
     }
 }

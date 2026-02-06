@@ -44,6 +44,7 @@
         "expression": "#set($initial = $firstname.substring(0, 1))$initial$lastname",
         "unique": false,
         "refresh": false,
+        "trim": false,
         "force": false,
         "type": "normal",
         "algorithm": "name-matcher",
@@ -148,7 +149,7 @@
                             "copyButton": true,
                             "buttonLabel": "Add source",
                             "type": "cardList",
-                            "required": true,
+                            "required": false,
                             "subMenus": [
                                 {
                                     "label": "Source Configuration",
@@ -206,7 +207,7 @@
                 {
                     "type": "section",
                     "sectionTitle": "Processing Control",
-                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.<br><br>Enable <strong>Force attribute refresh on each aggregation?</strong> to force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified.<br><br>Use <strong>Maximum history messages</strong> to limit how many history entries are retained per Fusion account. Older entries are discarded when the limit is exceeded.",
+                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.<br><br>Enable <strong>Force attribute refresh on each aggregation?</strong> to force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified.<br><br>Enable <strong>Skip accounts with missing unique ID?</strong> to skip processing accounts that don't have a value for the configured fusion identity attribute, and log them for review.<br><br>Use <strong>Maximum history messages</strong> to limit how many history entries are retained per Fusion account. Older entries are discarded when the limit is exceeded.",
                     "items": [
                         {
                             "key": "maxHistoryMessages",
@@ -236,6 +237,13 @@
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified"
+                        },
+                        {
+                            "key": "skipAccountsWithMissingId",
+                            "label": "Skip accounts with missing unique ID?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Skip processing accounts that don't have a value for the configured fusion identity attribute, and log them for review"
                         },
                         {
                             "key": "resetProcessingFlag",
@@ -472,6 +480,15 @@
                                             "helpKey": "Minimum number of digits for the counter (padded with leading zeros if needed)"
                                         },
                                         {
+                                            "key": "digits",
+                                            "label": "Minimum counter digits ($counter)",
+                                            "type": "number",
+                                            "required": true,
+                                            "parentKey": "type",
+                                            "parentValue": "unique",
+                                            "helpKey": "Minimum number of digits for the counter used when appending a disambiguation suffix on collision (padded with leading zeros if needed)"
+                                        },
+                                        {
                                             "key": "maxLength",
                                             "label": "Maximum length",
                                             "type": "number",
@@ -489,7 +506,13 @@
                                             "key": "spaces",
                                             "label": "Remove spaces?",
                                             "type": "toggle",
-                                            "helpKey": "Remove all spaces from the generated attribute value"
+                                            "helpKey": "Remove all spaces from the generated attribute"
+                                        },
+                                        {
+                                            "key": "trim",
+                                            "label": "Trim leading and trailing spaces?",
+                                            "type": "toggle",
+                                            "helpKey": "Remove leading and trailing whitespace from the generated attribute value"
                                         },
                                         {
                                             "key": "refresh",
@@ -837,8 +860,8 @@
         }
     ],
     "accountSchema": {
-        "displayAttribute": "uuid",
-        "identityAttribute": "uuid",
+        "displayAttribute": "name",
+        "identityAttribute": "id",
         "attributes": [
             {
                 "name": "id",

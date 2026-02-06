@@ -24,64 +24,97 @@ type LogConfig = {
     externalLoggingLevel?: LogLevel
 }
 
-/**
- * Payload sent to the external logging service
- */
-interface ExternalLogPayload {
-    timestamp: string
-    level: LogLevel
-    message: string
-    data?: any
-    functionName?: string
-}
 
 /**
- * Extracts the caller function name from the stack trace
- * @param skipFrames Number of stack frames to skip (default: 2 to skip this function and the logging method)
- * @returns The function name or undefined if not found
+ * Known operation function names
  */
-export function getCallerFunctionName(skipFrames: number = 2): string | undefined {
+const OPERATION_NAMES = new Set([
+    'accountList',
+    'accountCreate', 
+    'accountRead',
+    'accountUpdate',
+    'accountDelete',
+    'accountEnable',
+    'accountDisable',
+    'entitlementList',
+    'accountDiscoverSchema',
+    'testConnection',
+])
+
+/**
+ * Extracts the caller service and method name from the stack trace
+ * @param skipFrames Number of stack frames to skip (default: 2 to skip this function and the logging method)
+ * @returns An object with origin (formatted string) and isOperation (boolean)
+ */
+export function getCallerInfo(skipFrames: number = 2): { origin: string; isOperation: boolean } {
     try {
         const stack = new Error().stack
-        if (!stack) return undefined
+        if (!stack) return { origin: 'unknown', isOperation: false }
 
         const lines = stack.split('\n')
         // Skip Error constructor, this function, and the logging method
         const callerLine = lines[skipFrames + 1]
-        if (!callerLine) return undefined
+        if (!callerLine) return { origin: 'unknown', isOperation: false }
 
-        // Match various function name patterns:
-        // - "    at functionName (file:line:col)"
+        // Check if this is from an operations file (works in dev/source)
+        // or check the full stack for operations path (works in compiled code)
+        const isOperationByPath = callerLine.includes('/operations/') || stack.includes('/operations/')
+        
+        // Match various function name patterns and extract both class and method when available:
         // - "    at ClassName.methodName (file:line:col)"
         // - "    at Object.methodName (file:line:col)"
-        // - "    at /path/to/file:line:col" (anonymous)
-        const patterns = [
-            /at\s+(?:new\s+)?(\w+)\s*\(/, // functionName( or new ClassName(
-            /at\s+(?:(\w+)\.)?(\w+)\s*\(/, // ClassName.methodName( or methodName(
-            /at\s+Object\.(\w+)\s*\(/, // Object.methodName(
-            /at\s+(\w+)\s*\(/, // functionName(
-        ]
-
-        for (const pattern of patterns) {
-            const match = callerLine.match(pattern)
-            if (match) {
-                // For class methods, prefer method name over class name
-                if (match[2]) return match[2]
-                if (match[1]) return match[1]
+        // - "    at functionName (file:line:col)"
+        
+        // Try to match ClassName.methodName first (most specific)
+        const classMethodMatch = callerLine.match(/at\s+(\w+)\.(\w+)\s*\(/)
+        if (classMethodMatch) {
+            const className = classMethodMatch[1]
+            const methodName = classMethodMatch[2]
+            // Skip generic Object prefix, keep meaningful class names
+            if (className !== 'Object') {
+                return { 
+                    origin: `${className}>${methodName}`, 
+                    isOperation: false 
+                }
             }
+            return { origin: methodName, isOperation: isOperationByPath }
         }
 
-        // If no match, try to extract from anonymous function context
-        // Look for the module name in the file path
+        // Try to match standalone function name
+        const functionMatch = callerLine.match(/at\s+(?:new\s+)?(\w+)\s*\(/)
+        if (functionMatch) {
+            const functionName = functionMatch[1]
+            // Check if it's an operation by name or path
+            const isOperation = OPERATION_NAMES.has(functionName) || isOperationByPath
+            // Format operations with brackets
+            if (isOperation) {
+                return { origin: `[${functionName}]`, isOperation: true }
+            }
+            return { origin: functionName, isOperation: false }
+        }
+
+        // If no match, try to extract from the file path
         const fileMatch = callerLine.match(/[/\\]([^/\\]+)\.(?:ts|js|tsx|jsx)/)
         if (fileMatch) {
-            return fileMatch[1]
+            const fileName = fileMatch[1]
+            const isOperation = OPERATION_NAMES.has(fileName) || isOperationByPath
+            if (isOperation) {
+                return { origin: `[${fileName}]`, isOperation: true }
+            }
+            return { origin: fileName, isOperation: false }
         }
 
-        return undefined
+        return { origin: 'unknown', isOperation: false }
     } catch {
-        return undefined
+        return { origin: 'unknown', isOperation: false }
     }
+}
+
+/**
+ * Legacy function for backwards compatibility
+ */
+export function getCallerFunctionName(skipFrames: number = 2): string | undefined {
+    return getCallerInfo(skipFrames).origin
 }
 
 export class LogService {
@@ -91,6 +124,8 @@ export class LogService {
     private externalLoggingEnabled: boolean
     private externalLoggingUrl?: string
     private externalLoggingLevel: LogLevel
+    // Track pending external log promises so they can be flushed before process exit
+    private pendingExternalLogs: Promise<void>[] = []
 
     constructor(private config: LogConfig) {
         this.logger = logger
@@ -125,46 +160,86 @@ export class LogService {
     }
 
     /**
-     * Sends a log message to the external logging service.
-     * This is fire-and-forget to avoid blocking the main execution.
+     * Pads log level to ensure alignment (7 characters including brackets)
+     * Used for external logging service
      */
-    private sendToExternalService(level: LogLevel, message: string, data?: any, functionName?: string): void {
+    private padLogLevel(level: LogLevel): string {
+        const levelMap: Record<LogLevel, string> = {
+            debug: '[DEBUG]',
+            info: '[INFO] ',
+            warn: '[WARN] ',
+            error: '[ERROR]',
+        }
+        return levelMap[level]
+    }
+
+    /**
+     * Sends a log message to the external logging service in plain text.
+     * This is fire-and-forget to avoid blocking the main execution.
+     * Sends plain text: HH:MM:SS [LEVEL] origin: message
+     * The log server will handle colorization for console display.
+     */
+    private sendToExternalService(
+        level: LogLevel, 
+        message: string, 
+        data?: any, 
+        origin?: string
+    ): void {
         if (!this.externalLoggingUrl) return
 
-        const payload: ExternalLogPayload = {
-            timestamp: new Date().toISOString(),
-            level,
-            message,
-            functionName,
-        }
+        // Format timestamp as HH:MM:SS
+        const now = new Date()
+        const timestamp = now.toTimeString().split(' ')[0]
 
-        // Only include data if it's defined and serializable
+        // Build the log message with padding (no colors - log server handles that)
+        const paddedLevel = this.padLogLevel(level)
+        const fn = origin || 'unknown'
+        
+        let logMessage = `${timestamp} ${paddedLevel} ${fn}: ${message}`
+
+        // Append data if present
         if (data !== undefined && data !== null) {
-            try {
-                // Test if data is serializable
-                JSON.stringify(data)
-                payload.data = data
-            } catch {
-                // If not serializable, include a string representation
-                payload.data = String(data)
+            if (data instanceof Error) {
+                logMessage += ` [Error: ${data.name}: ${data.message}]`
+            } else if (typeof data === 'object') {
+                try {
+                    logMessage += ` ${JSON.stringify(data)}`
+                } catch {
+                    logMessage += ` ${String(data)}`
+                }
+            } else {
+                logMessage += ` ${String(data)}`
             }
         }
 
-        // Fire-and-forget: don't await, don't block execution
-        fetch(this.externalLoggingUrl, {
+        // Track the promise so it can be flushed before the process exits.
+        // In cloud/serverless environments, fire-and-forget fetches get killed
+        // when the container is recycled after the handler returns.
+        const pending: Promise<void> = fetch(this.externalLoggingUrl, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'text/plain',
             },
-            body: JSON.stringify(payload),
+            body: logMessage,
+        }).then(() => {
+            // Discard response - we only care about delivery
         }).catch(() => {
             // Silently ignore errors to avoid infinite logging loops
             // and to not disrupt the main application flow
+        }).finally(() => {
+            // Remove from pending list once settled
+            const idx = this.pendingExternalLogs.indexOf(pending)
+            if (idx !== -1) this.pendingExternalLogs.splice(idx, 1)
         })
+        this.pendingExternalLogs.push(pending)
     }
 
-    private formatMessage(message: string, data?: any, functionName?: string): string {
-        const fn = functionName || 'unknown'
+    private formatMessage(
+        message: string, 
+        data?: any, 
+        origin?: string
+    ): string {
+        const fn = origin || 'unknown'
 
         if (data === undefined || data === null) {
             return `${fn}: ${message}`
@@ -193,15 +268,16 @@ export class LogService {
      * Internal log method that handles both regular and external logging
      */
     private log(level: LogLevel, message: string, data?: any): void {
-        const functionName = getCallerFunctionName(3) || 'unknown'
-        const output = this.formatMessage(message, data, functionName)
+        const callerInfo = getCallerInfo(3)
+        const { origin } = callerInfo
+        const output = this.formatMessage(message, data, origin)
 
-        // Always do regular logging
+        // Use SDK logger - it handles timestamp and level formatting
         this.logger[level](output)
 
         // Send to external service if enabled and level threshold is met
         if (this.shouldSendExternal(level)) {
-            this.sendToExternalService(level, message, data, functionName)
+            this.sendToExternalService(level, message, data, origin)
         }
     }
 
@@ -232,30 +308,32 @@ export class LogService {
      */
     assert(condition: boolean, message: string, data?: any, level: LogLevel = 'error'): void {
         if (!condition) {
-            const functionName = getCallerFunctionName(2) || 'unknown'
+            const callerInfo = getCallerInfo(2)
+            const { origin } = callerInfo
             const assertMessage = `Assertion failed: ${message}`
-            const output = this.formatMessage(assertMessage, data, functionName)
+            const output = this.formatMessage(assertMessage, data, origin)
 
-            // Always do regular logging
+            // Use SDK logger - it handles timestamp and level formatting
             this.logger[level](output)
 
             // Send to external service if enabled and level threshold is met
             if (this.shouldSendExternal(level)) {
-                this.sendToExternalService(level, assertMessage, data, functionName)
+                this.sendToExternalService(level, assertMessage, data, origin)
             }
         }
     }
 
     crash(message: string, data?: any): void {
-        const functionName = getCallerFunctionName(2) || 'unknown'
-        const output = this.formatMessage(message, data, functionName)
+        const callerInfo = getCallerInfo(2)
+        const { origin } = callerInfo
+        const output = this.formatMessage(message, data, origin)
 
-        // Always log the error
+        // Use SDK logger - it handles timestamp and level formatting
         this.logger.error(output)
 
         // Send to external service (crash is always error level)
         if (this.shouldSendExternal('error')) {
-            this.sendToExternalService('error', message, data, functionName)
+            this.sendToExternalService('error', message, data, origin)
         }
 
         throw new ConnectorError(message, ConnectorErrorType.Generic)
@@ -295,5 +373,23 @@ export class LogService {
      */
     isExternalLoggingEnabled(): boolean {
         return this.externalLoggingEnabled && !!this.externalLoggingUrl
+    }
+
+    /**
+     * Awaits all pending external log fetch calls.
+     * Must be called before the operation handler returns to ensure all log
+     * messages are delivered in cloud/serverless environments where the
+     * container is recycled immediately after the handler completes.
+     * @param timeoutMs Maximum time to wait for pending logs (default: 5000ms)
+     */
+    async flush(timeoutMs: number = 5000): Promise<void> {
+        if (this.pendingExternalLogs.length === 0) return
+        const pending = [...this.pendingExternalLogs]
+        await Promise.race([
+            Promise.allSettled(pending),
+            new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+        ])
+        // Clear any stragglers that didn't settle in time
+        this.pendingExternalLogs = []
     }
 }

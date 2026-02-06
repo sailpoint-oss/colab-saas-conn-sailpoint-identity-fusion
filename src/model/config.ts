@@ -40,6 +40,7 @@ export interface AttributeDefinition {
     maxLength?: number
     normalize: boolean
     spaces: boolean
+    trim: boolean
     refresh: boolean
     values?: Set<string>
 }
@@ -102,6 +103,7 @@ export interface ProcessingControlSection {
     correlateOnAggregation: boolean
     resetProcessingFlag: boolean
     forceAttributeRefresh: boolean
+    skipAccountsWithMissingId: boolean
     maxHistoryMessages: number
 }
 

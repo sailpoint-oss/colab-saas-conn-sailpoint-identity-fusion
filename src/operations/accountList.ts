@@ -39,8 +39,11 @@ export const accountList = async (
 
     try {
         log.info('Starting account list operation')
+        log.info('PHASE 1: Setup and initialization')
 
         await sources.fetchAllSources()
+        log.debug(`Loaded ${sources.managedSources.length} managed source(s)`)
+        
         if (fusion.isReset()) {
             log.info('Reset flag detected, disabling reset and exiting')
             await forms.deleteExistingForms()
@@ -59,7 +62,8 @@ export const accountList = async (
         log.debug('Attribute counters initialized')
 
         // Fetch all data in parallel for efficiency
-        log.debug('Fetching fusion accounts, form data, identities, managed accounts, and sender')
+        log.info('PHASE 2: Fetching data in parallel')
+        log.debug('Fetching fusion accounts, identities, managed accounts, and sender')
         const fetchPromises = [
             sources.fetchFusionAccounts(),
             identities.fetchIdentities(),
@@ -68,6 +72,7 @@ export const accountList = async (
         ]
 
         await Promise.all(fetchPromises)
+        log.info(`Loaded ${sources.fusionAccounts.length} fusion account(s), ${identities.identities.length} identit(ies), ${sources.managedAccountsById.size} managed account(s)`)
         const fusionOwner = sources.fusionSourceOwner
         if (fusion.fusionReportOnAggregation) {
             const fusionOwnerIdentity = identities.getIdentityById(fusionOwner.id)
@@ -78,39 +83,47 @@ export const accountList = async (
         }
 
         // WORK QUEUE DEPLETION PHASE BEGINS
-        // Phase 1: Remove accounts with pending form decisions
+        log.info('PHASE 3: Work queue depletion - processing accounts')
         await forms.fetchFormData()
-        log.debug('All fetch operations completed')
+        log.debug('Form data loaded')
 
         // Phase 2-3: Remove accounts belonging to fusion accounts and identities
-        log.debug('Processing fusion accounts and identities')
+        log.debug('Step 3.1: Processing existing fusion accounts')
         await fusion.processFusionAccounts()
+        
+        log.debug('Step 3.2: Processing identities')
         await fusion.processIdentities()
 
         // Memory optimization: Clear identity cache after processing
         // Identities are no longer needed and can be garbage collected
         identities.clear()
-        log.debug('Identities cache cleared')
+        log.debug('Identities cache cleared from memory')
 
         // Phase 4: Process remaining uncorrelated accounts (deduplication)
-        log.debug('Processing Fusion identity decisions and managed accounts')
+        log.debug('Step 3.3: Processing fusion identity decisions')
         await fusion.processFusionIdentityDecisions()
+        
+        log.debug('Step 3.4: Processing managed accounts (deduplication)')
         await fusion.processManagedAccounts()
+        log.info(`Work queue processing complete - ${sources.managedAccountsById.size} unprocessed account(s) remaining`)
 
         if (fusion.fusionReportOnAggregation) {
-            log.info('Generating and sending fusion report')
+            log.info('PHASE 4: Generating fusion report')
             const fusionOwnerAccount = fusion.getFusionIdentity(fusionOwner.id!)
             softAssert(fusionOwnerAccount, 'Fusion owner account not found')
             if (fusionOwnerAccount) {
                 await generateReport(fusionOwnerAccount, false, serviceRegistry)
+                log.info('Fusion report generated and sent successfully')
             }
         }
 
+        log.info('PHASE 5: Finalizing and sending accounts')
         const accounts = await fusion.listISCAccounts()
         assert(accounts, 'Failed to list ISC accounts')
-        log.info(`Sending ${accounts.length} account(s)`)
+        log.info(`Sending ${accounts.length} account(s) to platform`)
         accounts.forEach((x) => res.send(x))
 
+        log.info('PHASE 6: Cleanup')
         await forms.cleanUpForms()
         log.debug('Form cleanup completed')
 
@@ -124,7 +137,7 @@ export const accountList = async (
         sources.clearFusionAccounts()
         log.debug('Account caches cleared from memory')
 
-        log.info(`Account listing completed successfully - processed ${accounts.length} account(s)`)
+        log.info(`✓ Account list operation completed successfully - ${accounts.length} account(s) processed`)
     } catch (error) {
         log.crash('Failed to list accounts', error)
     }

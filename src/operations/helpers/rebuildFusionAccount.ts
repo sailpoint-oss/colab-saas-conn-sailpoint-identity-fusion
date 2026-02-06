@@ -5,7 +5,7 @@ import { FusionAccount } from '../../model/account'
 export const rebuildFusionAccount = async (
     nativeIdentity: string,
     serviceRegistry?: ServiceRegistry
-): Promise<FusionAccount> => {
+): Promise<FusionAccount | undefined> => {
     if (!serviceRegistry) {
         serviceRegistry = ServiceRegistry.getCurrent()
     }

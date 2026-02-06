@@ -2,6 +2,7 @@ import {
     FormElementV2025,
     FormDefinitionInputV2025,
 } from 'sailpoint-api-client'
+import { logger } from '@sailpoint/connector-sdk'
 import { FusionAccount } from '../../model/account'
 import { capitalizeFirst } from '../../utils/attributes'
 import { ALGORITHM_LABELS } from './constants'
@@ -31,10 +32,14 @@ export const buildFormInput = (
 
     // NOTE: formInput must match the form definition input types.
     // Keep values primitive (STRING/BOOLEAN/NUMBER) to avoid Custom Forms payload issues.
+    // IMPORTANT: Form values must be consistent with form conditions. 
+    // For identities SELECT, we use displayName as the label and id as the value.
+    if (!fusionAccount.displayName) {
+        logger.error(`[formBuilder] Missing displayName for fusion account. Using fallback value: ${accountIdentifier}`)
+    }
     formInput.name =
-        fusionAccount.name ||
         fusionAccount.displayName ||
-        fusionAccount.nativeIdentityOrUndefined ||
+        fusionAccount.name ||
         accountIdentifier
     formInput.account = accountIdentifier
     formInput.source = fusionAccount.sourceName
@@ -218,6 +223,12 @@ export const buildFormFields = (
     candidates.forEach((candidate) => {
         if (!candidate || !candidate.id || !candidate.name) return
         const candidateId = candidate.id
+        
+        // Validate that candidate has displayName for form conditions
+        if (!candidate.name) {
+            logger.error(`[formBuilder] Candidate ${candidateId} is missing name/displayName. This may cause form condition issues.`)
+        }
+        
         const candidateElements: FormElementV2025[] = []
 
         if (fusionFormAttributes && fusionFormAttributes.length > 0) {
@@ -309,8 +320,9 @@ export const buildFormFields = (
  * Per candidate:
  * 1. When newIdentity is true → DISABLE that candidate's selection section.
  * 2. When newIdentity is true OR identities is not this candidate → HIDE that candidate's selection section.
+ * 3. When newIdentity is false AND identities is empty → DISABLE all attribute fields (to prevent interaction before decision).
  */
-export const buildFormConditions = (candidates: Candidate[], _fusionFormAttributes?: string[]): any[] => {
+export const buildFormConditions = (candidates: Candidate[], fusionFormAttributes?: string[]): any[] => {
     const formConditions: any[] = []
 
     // Validate inputs to prevent malformed conditions
@@ -345,6 +357,7 @@ export const buildFormConditions = (candidates: Candidate[], _fusionFormAttribut
         })
 
         // Hide this candidate's section when new identity is selected OR a different identity is chosen
+        // IMPORTANT: identities SELECT uses displayName as label, conditions must compare against displayName
         formConditions.push({
             ruleOperator: 'OR',
             rules: [
@@ -374,6 +387,66 @@ export const buildFormConditions = (candidates: Candidate[], _fusionFormAttribut
         })
     })
 
+    // Disable every element (except newIdentity and identities) if it is not empty.
+    // Each element gets a self-referencing condition: if element X is NOT_EM → disable element X.
+    const allAttributeElements: string[] = []
+    
+    // Collect new identity attribute fields
+    if (fusionFormAttributes && fusionFormAttributes.length > 0) {
+        fusionFormAttributes.forEach((attrName) => {
+            const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+            allAttributeElements.push(`newidentity.${attrKey}`)
+        })
+    }
+    
+    // Collect candidate attribute and score fields
+    candidates.forEach((candidate) => {
+        if (!candidate || !candidate.id) return
+        const candidateId = candidate.id
+        
+        if (fusionFormAttributes && fusionFormAttributes.length > 0) {
+            fusionFormAttributes.forEach((attrName) => {
+                const attrKey = attrName.charAt(0).toLowerCase() + attrName.slice(1)
+                allAttributeElements.push(`${candidateId}.${attrKey}`)
+            })
+        }
+        
+        // Score fields
+        if (candidate.scores && Array.isArray(candidate.scores)) {
+            candidate.scores.forEach((score: any) => {
+                if (score && score.attribute) {
+                    const attrKey = String(score.attribute).charAt(0).toLowerCase() + String(score.attribute).slice(1)
+                    const algorithmKey = String(score.algorithm ?? 'unknown')
+                    allAttributeElements.push(`${candidateId}.${attrKey}.${algorithmKey}.score`)
+                }
+            })
+        }
+    })
+    
+    // For each element: if it has a value, disable it
+    allAttributeElements.forEach((elementId) => {
+        formConditions.push({
+            ruleOperator: 'AND',
+            rules: [
+                {
+                    sourceType: 'ELEMENT',
+                    source: elementId,
+                    operator: 'NOT_EM',
+                    valueType: 'STRING',
+                    value: '',
+                },
+            ],
+            effects: [
+                {
+                    effectType: 'DISABLE',
+                    config: {
+                        element: elementId,
+                    },
+                },
+            ],
+        })
+    })
+
     return formConditions
 }
 
@@ -396,14 +469,17 @@ export const buildFormInputs = (
         'unknown'
 
     // Account info
+    // IMPORTANT: Use displayName consistently with form conditions
+    if (!fusionAccount.displayName) {
+        logger.error(`[formBuilder] Missing displayName for fusion account in form inputs. Using fallback value: ${accountIdentifier}`)
+    }
     formInputs.push({
         id: 'name',
         type: 'STRING',
         label: 'name',
         description:
-            fusionAccount.name ||
             fusionAccount.displayName ||
-            fusionAccount.nativeIdentityOrUndefined ||
+            fusionAccount.name ||
             accountIdentifier,
     })
     formInputs.push({

@@ -29,3 +29,7 @@ config.json
 .httpyac.json
 .env
 
+# Logs
+logs/
+remote-logs.jsonl
+
