@@ -38,6 +38,7 @@ export class FusionAccount {
     private _name?: string
     private _displayName?: string
     private _sourceName = ''
+    private _originSource?: string
 
     // State flags
     private _uncorrelated = false
@@ -181,6 +182,9 @@ export class FusionAccount {
             identityId: account.identityId ?? undefined,
             modified: getDateFromISOString(account.modified),
         })
+        // Restore persisted originSource; fallback for legacy accounts without it
+        fusionAccount._originSource = account.attributes?.originSource
+            ?? (statuses.has('baseline') ? 'Identities' : undefined)
         // Capture the previously stored account IDs so we can later rebuild
         // the current and missing account sets based on which managed accounts
         // still exist in configured sources.
@@ -206,6 +210,7 @@ export class FusionAccount {
             attributes: identity.attributes ?? undefined,
             identityId: identity.id ?? undefined,
         })
+        fusionAccount._originSource = 'Identities'
         fusionAccount.setBaseline()
         return fusionAccount
     }
@@ -226,6 +231,7 @@ export class FusionAccount {
             collectionKeys: ['accounts', 'statuses', 'actions', 'reviews'],
             managedAccountId: account.id ?? undefined,
         })
+        fusionAccount._originSource = account.sourceName ?? undefined
         fusionAccount.setUncorrelated()
         fusionAccount.setUncorrelatedAccount(account.id!)
         return fusionAccount
@@ -242,6 +248,7 @@ export class FusionAccount {
             needsRefresh: true,
             managedAccountId: account.id ?? undefined,
         })
+        fusionAccount._originSource = account.sourceName ?? undefined
         fusionAccount.setUncorrelated()
         fusionAccount.setUncorrelatedAccount(account.id)
         return fusionAccount
@@ -299,6 +306,10 @@ export class FusionAccount {
 
     public get sourceName(): string {
         return this._sourceName
+    }
+
+    public get originSource(): string | undefined {
+        return this._originSource
     }
 
     // ============================================================================
@@ -552,6 +563,9 @@ export class FusionAccount {
         this._attributeBag.current['missing-accounts'] = Array.from(this._missingAccountIds)
         this._attributeBag.current['sources'] = attrConcat(Array.from(this._sources))
         this._attributeBag.current['history'] = this._history
+        if (this._originSource) {
+            this._attributeBag.current['originSource'] = this._originSource
+        }
     }
 
     public addPendingReviewUrl(reviewUrl: string): void {

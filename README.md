@@ -19,7 +19,7 @@ You can use **attribute generation**, **deduplication**, and **attribute managem
 | [Migration from previous Identity Fusion](docs/guides/migration-from-previous-fusion.md) | Migrate from an earlier Identity Fusion version: add the old source as managed, align schemas, then migrate identities via a higher-priority profile and identity refresh. |
 | [Identity Fusion for attribute generation](docs/guides/attribute-generation.md)          | Generate unique or combined attributes from identities, sources, or both. Fusion is rarely authoritative in this mode; managed sources are optional.                       |
 | [Identity Fusion for deduplication](docs/guides/deduplication.md)                        | Detect and resolve potential duplicate identities using one or more sources; identities optional but recommended as a baseline.                                            |
-| [Matching algorithms](docs/guides/matching-algorithms.md)                                | Choose and tune algorithms for similarity scoring (e.g. names, short text, phonetics).                                                                                     |
+| [Matching algorithms](docs/guides/matching-algorithms.md)                                | Choose and tune algorithms for similarity scoring (e.g. names, short text, phonetics, international names).                                                                |
 | [Attribute management](docs/guides/attribute-management.md)                              | Attribute mapping, merging from multiple sources, and attribute definitions (Velocity, unique, UUID, counters).                                                            |
 | [Advanced connection settings](docs/guides/advanced-connection-settings.md)              | Queue, retry, batching, rate limiting, and logging.                                                                                                                        |
 | [Proxy mode](docs/guides/proxy-mode.md)                                                  | Run connector logic on an external server and connect ISC to it via proxy.                                                                                                 |
@@ -37,15 +37,15 @@ Authentication and connectivity to the ISC APIs.
 
 ![Connection Settings](docs/assets/images/config-connection-settings.png)
 
-<!-- PLACEHOLDER: Screenshot of Connection Settings configuration interface. Save as docs/assets/images/config-connection-settings.png -->
+| Field                               | Description                                             | Required                         | Notes                                                                                 |
+| ----------------------------------- | ------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------- |
+| **Identity Security Cloud API URL** | Base URL of your ISC tenant                             | Yes                              | Format: `https://<tenant>.api.identitynow.com`                                        |
+| **Personal Access Token ID**        | Client ID from your PAT                                 | Yes                              | Must have required API permissions for sources, identities, accounts, workflows/forms |
+| **Personal Access Token secret**    | Client secret from your PAT                             | Yes                              | Keep secure; rotate as needed                                                         |
+| **API request retries**             | Maximum retry attempts for failed API requests          | No (shown when retry is enabled) | Default: 20; also configurable from Advanced Settings                                 |
+| **Requests per second**             | Maximum API requests per second (throttling)            | No (shown when queue is enabled) | Default: 10; also configurable from Advanced Settings                                 |
 
-| Field                               | Description                 | Required | Notes                                                                                 |
-| ----------------------------------- | --------------------------- | -------- | ------------------------------------------------------------------------------------- |
-| **Identity Security Cloud API URL** | Base URL of your ISC tenant | Yes      | Format: `https://<tenant>.api.identitynow.com`                                        |
-| **Personal Access Token ID**        | Client ID from your PAT     | Yes      | Must have required API permissions for sources, identities, accounts, workflows/forms |
-| **Personal Access Token secret**    | Client secret from your PAT | Yes      | Keep secure; rotate as needed                                                         |
-
-For API request retries, requests per second, and queue settings, see **Advanced Settings**.
+> **Note:** **API request retries** and **Requests per second** also appear in **Advanced Settings → Advanced Connection Settings**. They control the same underlying settings; Connection Settings provides quick access, while Advanced Settings groups them with related queue and retry options.
 
 ### Source Settings
 
@@ -55,8 +55,6 @@ Controls which identities and sources are in scope and how processing is managed
 
 ![Source Settings - Scope](docs/assets/images/config-source-scope.png)
 
-<!-- PLACEHOLDER: Screenshot of Scope section showing identity inclusion and query fields. Save as docs/assets/images/config-source-scope.png -->
-
 | Field                                | Description                                                                | Required                              | Notes                                                                                                                                                                                     |
 | ------------------------------------ | -------------------------------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Include identities in the scope?** | Include identities in addition to managed accounts from configured sources | No                                    | Enable for identity-only attribute generation or to define the baseline for deduplication (sources scope = managed accounts from configured sources).                                     |
@@ -65,8 +63,6 @@ Controls which identities and sources are in scope and how processing is managed
 #### Sources Section
 
 ![Source Settings - Sources](docs/assets/images/config-source-sources.png)
-
-<!-- PLACEHOLDER: Screenshot of Sources section with source list and configuration. Save as docs/assets/images/config-source-sources.png -->
 
 | Field                                           | Description                                                 | Required | Notes                                                                    |
 | ----------------------------------------------- | ----------------------------------------------------------- | -------- | ------------------------------------------------------------------------ |
@@ -89,14 +85,13 @@ Controls which identities and sources are in scope and how processing is managed
 
 ![Source Settings - Processing Control](docs/assets/images/config-source-processing.png)
 
-<!-- PLACEHOLDER: Screenshot of Processing Control section. Save as docs/assets/images/config-source-processing.png -->
-
 | Field                                                       | Description                                                              | Required | Notes                                                                                                                                                                                        |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Maximum history messages**                                | Maximum history entries retained per Fusion account                      | No       | Default: 10; older entries are discarded when limit exceeded                                                                                                                                 |
 | **Delete accounts with no authoritative accounts left?**    | Remove Fusion accounts when all contributing source accounts are removed | No       | Useful for automated cleanup when users leave                                                                                                                                                |
 | **Correlate missing source accounts on aggregation?**       | Attempt to correlate new/missing source accounts each run                | No       | Default: true; helps with incremental correlation                                                                                                                                            |
 | **Force attribute refresh on each aggregation?**            | Force Normal-type attributes to refresh every run                        | No       | Applies only to Normal attributes; Unique attributes are only computed when a Fusion account is first created or when an existing account is activated. Can be expensive for large datasets. |
+| **Skip accounts with missing unique ID?**                   | Skip processing accounts without a fusion identity attribute value       | No       | Skipped accounts are logged for review; useful when some source accounts lack required identifier data                                                                                       |
 | **Reset processing flag in case of unfinished processing?** | Clear stuck processing state from prior incomplete run                   | No       | Use when a previous run left accounts in processing state                                                                                                                                    |
 
 ### Attribute Mapping Settings
@@ -104,8 +99,6 @@ Controls which identities and sources are in scope and how processing is managed
 Controls how source account attributes are mapped into the Fusion account and how values from multiple sources are merged.
 
 ![Attribute Mapping Settings](docs/assets/images/config-attribute-mapping.png)
-
-<!-- PLACEHOLDER: Screenshot of Attribute Mapping Settings menu. Save as docs/assets/images/config-attribute-mapping.png -->
 
 #### Attribute Mapping Definitions Section
 
@@ -131,8 +124,6 @@ Controls how attributes are generated, including unique identifiers, UUIDs, coun
 
 ![Attribute Definition Settings](docs/assets/images/config-attribute-definition.png)
 
-<!-- PLACEHOLDER: Screenshot of Attribute Definition Settings menu. Save as docs/assets/images/config-attribute-definition.png -->
-
 #### Attribute Definition Settings Section
 
 | Field                                                | Description                                                | Required | Notes                                                        |
@@ -155,6 +146,7 @@ Controls how attributes are generated, including unique identifiers, UUIDs, coun
 | **Maximum length**                    | Maximum length for generated value                  | No                         | Truncates to this length; for unique/counter types, counter is preserved at end                                                                                                                                                                                                                                                                    |
 | **Normalize special characters?**     | Remove special characters and quotes                | No                         | Useful for IDs and usernames                                                                                                                                                                                                                                                                                                                       |
 | **Remove spaces?**                    | Remove all spaces from value                        | No                         | Useful for IDs and usernames                                                                                                                                                                                                                                                                                                                       |
+| **Trim leading and trailing spaces?** | Remove leading/trailing whitespace from value       | No                         | Cleans up extra whitespace from source data                                                                                                                                                                                                                                                                                                        |
 | **Refresh on each aggregation?**      | Recalculate value every aggregation                 | No                         | Only available for **Normal** type; unique/UUID/counter preserve state                                                                                                                                                                                                                                                                             |
 
 **Note:** When an account is **enabled**, all attributes (including unique) are force refreshed and recalculated (internal mechanism to reset unique attributes).
@@ -166,8 +158,6 @@ Controls deduplication behavior, including similarity matching and manual review
 #### Matching Settings Section
 
 ![Fusion Settings - Matching](docs/assets/images/config-fusion-matching.png)
-
-<!-- PLACEHOLDER: Screenshot of Matching Settings section. Save as docs/assets/images/config-fusion-matching.png -->
 
 | Field                                                       | Description                                                    | Required                         | Notes                                                                                                                                                                                    |
 | ----------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -183,15 +173,13 @@ Controls deduplication behavior, including similarity matching and manual review
 | Field                        | Description                                                     | Required | Notes                                                                                                                                                                                                                                                                                                                  |
 | ---------------------------- | --------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Attribute**                | Identity attribute name to compare                              | Yes      | Must exist on identities in scope                                                                                                                                                                                                                                                                                      |
-| **Matching algorithm**       | Algorithm for similarity calculation                            | Yes      | **Enhanced Name Matcher** (person names, handles variations), **Jaro-Winkler** (short strings with typos, emphasizes beginning), **Dice** (longer text, bigram-based), **Double Metaphone** (phonetic, similar pronunciation), **Custom** (from SaaS customizer)                                                       |
+| **Matching algorithm**       | Algorithm for similarity calculation                            | Yes      | **Enhanced Name Matcher** (person names, handles variations), **Jaro-Winkler** (short strings with typos, emphasizes beginning), **LIG3** (Levenshtein-based with intelligent gap penalties, excellent for international names and multi-word fields), **Dice** (longer text, bigram-based), **Double Metaphone** (phonetic, similar pronunciation), **Custom** (from SaaS customizer) |
 | **Similarity score [0-100]** | Minimum similarity score for this attribute                     | No       | Required when not using overall score mode. A mandatory attribute must meet or exceed this threshold or the match fails. When overall score is enabled, only the overall threshold is required (per-attribute thresholds may not all be met). When no attribute is mandatory, all attributes are treated as mandatory. |
 | **Mandatory match?**         | Require this attribute to match before considering as duplicate | No       | When Yes: this attribute's score must be ≥ its threshold or the match fails. When No: attribute still has a threshold; when overall score is disabled and no attribute is mandatory, every attribute is effectively mandatory (all must meet thresholds).                                                              |
 
 #### Review Settings Section
 
 ![Fusion Settings - Review](docs/assets/images/config-fusion-review.png)
-
-<!-- PLACEHOLDER: Screenshot of Review Settings section. Save as docs/assets/images/config-fusion-review.png -->
 
 | Field                                              | Description                                      | Required | Notes                                                                                                                                                                                                                                              |
 | -------------------------------------------------- | ------------------------------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -204,13 +192,9 @@ Controls deduplication behavior, including similarity matching and manual review
 
 Fine-tuning for API behavior, resilience, debugging, and proxy mode.
 
-<!-- PLACEHOLDER: Screenshot of Advanced Settings menu with all subsections. Save as docs/assets/images/config-advanced-settings.png -->
-
 #### Developer Settings Section
 
 ![Advanced Settings - Developer](docs/assets/images/config-advanced-developer.png)
-
-<!-- PLACEHOLDER: Screenshot of Developer Settings section. Save as docs/assets/images/config-advanced-developer.png -->
 
 | Field                        | Description                                                   | Required                                    | Notes                                                                                        |
 | ---------------------------- | ------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -222,8 +206,6 @@ Fine-tuning for API behavior, resilience, debugging, and proxy mode.
 #### Advanced Connection Settings Section
 
 ![Advanced Settings - Connection](docs/assets/images/config-advanced-connection.png)
-
-<!-- PLACEHOLDER: Screenshot of Advanced Connection Settings section. Save as docs/assets/images/config-advanced-connection.png -->
 
 | Field                              | Description                                    | Required                         | Notes                                                                             |
 | ---------------------------------- | ---------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------- |
@@ -240,8 +222,6 @@ Fine-tuning for API behavior, resilience, debugging, and proxy mode.
 #### Proxy Settings Section
 
 ![Advanced Settings - Proxy](docs/assets/images/config-advanced-proxy.png)
-
-<!-- PLACEHOLDER: Screenshot of Proxy Settings section. Save as docs/assets/images/config-advanced-proxy.png -->
 
 | Field                  | Description                                  | Required                         | Notes                                                                                |
 | ---------------------- | -------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------ |
@@ -267,6 +247,27 @@ For detailed field-by-field guidance and usage patterns, see the [usage guides](
 6. **Identity profile and aggregation** — Create an identity profile and provisioning plan as required by ISC, then run entitlement and account aggregation.
 
 For step-by-step instructions and UI details, see the [attribute generation](docs/guides/attribute-generation.md) and [deduplication](docs/guides/deduplication.md) guides.
+
+---
+
+## Standard account schema attributes
+
+Every Identity Fusion NG account exposes the following built-in attributes. These are always present regardless of Attribute Mapping or Attribute Definition configuration.
+
+| Attribute | Type | Multi | Description |
+|-----------|------|-------|-------------|
+| **id** | string | No | Unique account identifier (native identity) |
+| **name** | string | No | Account display name |
+| **history** | string | Yes | Dated log entries tracking account lifecycle events |
+| **statuses** | string (entitlement) | Yes | Current status labels (e.g. `baseline`, `uncorrelated`, `orphan`, `activeReviews`) |
+| **actions** | string (entitlement) | Yes | Assigned actions (e.g. `correlated`, `reviewer:<sourceId>`) |
+| **accounts** | string | Yes | IDs of all contributing managed source accounts |
+| **missing-accounts** | string | Yes | IDs of managed source accounts not yet correlated |
+| **reviews** | string | Yes | URLs to pending fusion review forms |
+| **sources** | string | No | Comma-separated list of managed source names currently contributing to this account |
+| **originSource** | string | No | Name of the source that originally created this account. Set once at creation and never modified. Equals the managed account source name when the account originates from a source account, or `Identities` when it originates from an identity. Useful for auditing and tracing account provenance. |
+
+> **Note:** In addition to these standard attributes, the discovered schema includes any attributes defined via **Attribute Mapping** and **Attribute Definition** settings.
 
 ---
 

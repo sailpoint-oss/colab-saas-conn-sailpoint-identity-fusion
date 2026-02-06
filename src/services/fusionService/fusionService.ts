@@ -685,6 +685,9 @@ export class FusionService {
         attributes.reviews = Array.from(fusionAccount.reviews)
         attributes.statuses = Array.from(fusionAccount.statuses)
         attributes.actions = Array.from(fusionAccount.actions)
+        if (fusionAccount.originSource) {
+            attributes.originSource = fusionAccount.originSource
+        }
 
         return {
             key,

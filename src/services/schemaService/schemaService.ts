@@ -13,6 +13,7 @@ export class SchemaService {
     private _fusionAccountSchema?: AccountSchema
     private attributeMap: Map<string, AttributeMap> = new Map()
     private _fusionSchemaAttributeNames: string[] = []
+    private _fusionSchemaAttributeMap: Map<string, SchemaAttribute> = new Map()
     private readonly attributeMaps?: AttributeMap[]
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly attributeDefinitions?: AttributeDefinition[] // Local type from config
@@ -33,9 +34,58 @@ export class SchemaService {
 
         const fusionAttributes: Attributes = {}
         for (const attribute of this._fusionSchemaAttributeNames) {
-            fusionAttributes[attribute] = attributes?.[attribute]
+            const value = attributes?.[attribute]
+            const schemaDef = this._fusionSchemaAttributeMap.get(attribute)
+            fusionAttributes[attribute] = schemaDef ? this.castAttributeValue(value, schemaDef) : value
         }
         return fusionAttributes
+    }
+
+    /**
+     * Cast an attribute value to match its schema-defined type and cardinality.
+     * - For single-valued attributes (`multi` is false/undefined): arrays are joined with ", ".
+     * - For multi-valued attributes (`multi` is true): scalar values are wrapped in an array.
+     * - Values are cast to the target type (`string`, `boolean`, `int`/`long`).
+     */
+    private castAttributeValue(
+        value: boolean | string | string[] | number | number[] | null | undefined,
+        schemaDef: SchemaAttribute
+    ): boolean | string | string[] | number | number[] | null {
+        if (value === null || value === undefined) return null
+
+        const isMulti = schemaDef.multi === true
+        const type = (schemaDef.type ?? 'string').toLowerCase()
+
+        if (isMulti) {
+            // Multi-valued: ensure the value is an array, then cast each element
+            const arr = Array.isArray(value) ? value : [value]
+            return arr.map((v) => this.castScalar(v, type)) as string[] | number[]
+        } else {
+            // Single-valued: if value is an array, join it into a string
+            const scalar = Array.isArray(value) ? value.join(', ') : value
+            return this.castScalar(scalar, type)
+        }
+    }
+
+    /**
+     * Cast a single scalar value to the target schema type.
+     */
+    private castScalar(value: boolean | string | number, type: string): boolean | string | number {
+        switch (type) {
+            case 'boolean':
+                if (typeof value === 'boolean') return value
+                if (typeof value === 'string') return value.toLowerCase() === 'true'
+                return value !== 0
+            case 'int':
+            case 'long':
+                if (typeof value === 'number') return value
+                if (typeof value === 'boolean') return value ? 1 : 0
+                const num = Number(value)
+                return isNaN(num) ? 0 : num
+            case 'string':
+            default:
+                return String(value)
+        }
     }
 
     private async fetchFusionAccountSchema(): Promise<void> {
@@ -63,6 +113,20 @@ export class SchemaService {
         this._fusionSchemaAttributeNames = [
             ...new Set([...fromSchema, ...SchemaService.BASE_FUSION_ATTRIBUTE_NAMES]),
         ].sort()
+
+        // Build a lookup map from attribute name to its SchemaAttribute definition
+        this._fusionSchemaAttributeMap = new Map()
+        for (const attr of this.fusionAccountSchema.attributes) {
+            if (attr.name) {
+                this._fusionSchemaAttributeMap.set(attr.name, attr)
+            }
+        }
+        // Also include base fusion attributes
+        for (const attr of fusionAccountSchemaAttributes) {
+            if (attr.name && !this._fusionSchemaAttributeMap.has(attr.name)) {
+                this._fusionSchemaAttributeMap.set(attr.name, attr)
+            }
+        }
     }
 
     /**
