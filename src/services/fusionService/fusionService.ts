@@ -169,6 +169,14 @@ export class FusionService {
         )
 
         const fusionAccount = FusionAccount.fromFusionAccount(account)
+
+        // During aggregation, assume the account is NOT a candidate unless a pending
+        // review is detected later. The status will be re-applied in
+        // processFusionIdentityDecisions or flagCandidatesWithStatus as needed.
+        if (this.commandType === StandardCommand.StdAccountList) {
+            fusionAccount.removeStatus('candidate')
+        }
+
         const key = this.attributes.getSimpleKey(fusionAccount)
         
         // Skip account if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
@@ -365,6 +373,25 @@ export class FusionService {
         }
         this.log.debug(`Populated reviewer reviews from pending form instances - added ${pendingReviews} pending review(s)`)
 
+        // Apply 'candidate' status to identities that are candidates of pending (unanswered) forms.
+        // During aggregation, the status was stripped on load (preProcessFusionAccount) so only
+        // identities with an actual pending review in flight will carry this status.
+        // These IDs were collected during fetchFormData from form input data.
+        if (this.commandType === StandardCommand.StdAccountList) {
+            const pendingCandidateIds = this.forms.pendingCandidateIdentityIds
+            let candidatesApplied = 0
+            for (const identityId of pendingCandidateIds) {
+                const identity = this.fusionIdentityMap.get(identityId)
+                if (identity) {
+                    identity.addStatus('candidate')
+                    candidatesApplied++
+                }
+            }
+            if (candidatesApplied > 0) {
+                this.log.debug(`Applied candidate status to ${candidatesApplied} identit(ies) from pending form instances`)
+            }
+        }
+
         // Apply only finished decisions to fusion identities.
         await Promise.all(identityFusionDecisions.map((x) => this.processIdentityFusionDecision(x)))
         this.log.info('Identity fusion decisions processing completed')
@@ -508,6 +535,8 @@ export class FusionService {
                 assert(sourceInfo, 'Source info not found')
                 const reviewers = this.reviewersBySourceId.get(sourceInfo.id!)
                 await this.forms.createFusionForm(fusionAccount, reviewers)
+                // Flag candidate identities with the 'candidate' status
+                this.flagCandidatesWithStatus(fusionAccount)
             }
         } else {
             // Non-match
@@ -552,8 +581,8 @@ export class FusionService {
         this.analyzedManagedAccounts.push(fusionAccount)
 
         if (fusionAccount.isMatch) {
-            this.log.debug(
-                `Account ${name} [${sourceName}] is a potential duplicate, creating fusion form`
+            this.log.info(
+                `Potential match found for managed account ${name} [${sourceName}] - ${fusionAccount.fusionMatches.length} candidate(s)`
             )
 
             // Keep a reference for reporting (these accounts are not added to fusionAccountMap)
@@ -589,6 +618,26 @@ export class FusionService {
     // ------------------------------------------------------------------------
     // Private Helper Methods
     // ------------------------------------------------------------------------
+
+    /**
+     * Flag candidate identities with the 'candidate' status.
+     * Called when a fusion form is created to mark matching identities as candidates
+     * of a pending Fusion review.
+     */
+    private flagCandidatesWithStatus(fusionAccount: FusionAccount): void {
+        for (const match of fusionAccount.fusionMatches) {
+            const identityId = match.fusionIdentity.identityId
+            if (!identityId) continue
+            const identity = this.fusionIdentityMap.get(identityId)
+            if (identity) {
+                identity.addStatus(
+                    'candidate',
+                    `Flagged as candidate for ${fusionAccount.name ?? 'unknown'} [${fusionAccount.sourceName}]`
+                )
+                this.log.debug(`Flagged identity ${identityId} as candidate for ${fusionAccount.name}`)
+            }
+        }
+    }
 
     /**
      * Set a reviewer for a specific source
