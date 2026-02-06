@@ -11,7 +11,6 @@ import {
     CustomFormsV2025ApiPatchFormInstanceRequest,
     CustomFormsV2025ApiSearchFormInstancesByTenantRequest,
 } from 'sailpoint-api-client'
-import { RawAxiosRequestConfig } from 'axios'
 import { FusionConfig } from '../../model/config'
 import { ClientService } from '../clientService'
 import { LogService } from '../logService'
@@ -41,6 +40,8 @@ export class FormService {
     private fusionAssignmentDecisionMap: Map<string, FusionDecision> = new Map()
     /** Pending (unanswered) form instance URLs by recipient identityId, populated during fetchFormData. */
     private _pendingReviewUrlsByReviewerId: Map<string, string[]> = new Map()
+    /** Candidate identity IDs from pending (unanswered) form instances, populated during fetchFormData. */
+    private _pendingCandidateIdentityIds: Set<string> = new Set()
     private readonly fusionFormNamePattern: string
     private readonly fusionFormExpirationDays: number
     private readonly fusionFormAttributes?: string[]
@@ -76,6 +77,7 @@ export class FormService {
         this._fusionIdentityDecisions = []
         this.fusionAssignmentDecisionMap = new Map()
         this._pendingReviewUrlsByReviewerId = new Map()
+        this._pendingCandidateIdentityIds = new Set()
 
         const forms = await this.fetchFormsByName(this.fusionFormNamePattern)
         this.log.debug(`Fetched ${forms.length} form definition(s) for pattern: ${this.fusionFormNamePattern}`)
@@ -477,14 +479,25 @@ export class FormService {
         return this._pendingReviewUrlsByReviewerId
     }
 
+    /**
+     * Candidate identity IDs from pending (unanswered) form instances.
+     * Populated during fetchFormData so candidate identities can be flagged
+     * with the 'candidate' status during processFusionIdentityDecisions.
+     */
+    public get pendingCandidateIdentityIds(): Set<string> {
+        return this._pendingCandidateIdentityIds
+    }
+
     // ------------------------------------------------------------------------
     // Private Helper Methods
     // ------------------------------------------------------------------------
 
     /**
-     * Collect pending (unanswered) form instance URLs by recipient identityId.
+     * Collect pending (unanswered) form instance URLs by recipient identityId,
+     * and candidate identity IDs from pending form instances.
      * Pending = state is not COMPLETED, IN_PROGRESS, or CANCELLED.
-     * Kept so we can assign current review URLs to each reviewer when we process them.
+     * Kept so we can assign current review URLs to each reviewer when we process them,
+     * and so we can apply the 'candidate' status to identities in pending reviews.
      */
     private collectPendingReviewUrlsByReviewer(formInstances: FormInstanceResponseV2025[]): void {
         for (const instance of formInstances) {
@@ -497,6 +510,43 @@ export class FormService {
                 const list = this._pendingReviewUrlsByReviewerId.get(recipient.id) ?? []
                 list.push(instance.standAloneFormUrl)
                 this._pendingReviewUrlsByReviewerId.set(recipient.id, list)
+            }
+
+            // Extract candidate identity IDs from pending form instances.
+            // The 'candidates' field is a comma-separated list of identity IDs
+            // stored during form creation (see buildFormInput in formBuilder.ts).
+            this.extractCandidateIdentityIds(instance.formInput)
+        }
+    }
+
+    /**
+     * Extract candidate identity IDs from form input.
+     * Handles both flat structure { candidates: "id1,id2" } and dictionary structure
+     * where formInput is an object with input objects keyed by id.
+     */
+    private extractCandidateIdentityIds(formInput: any): void {
+        if (!formInput || typeof formInput !== 'object') return
+
+        let candidatesStr: string | undefined
+
+        // Try flat structure first (as sent in createFormInstance)
+        if (typeof formInput.candidates === 'string') {
+            candidatesStr = formInput.candidates
+        } else {
+            // Try dictionary structure (formInput is an object with input objects)
+            const formInputs = formInput as Record<string, any>
+            const candidatesInput = Object.values(formInputs).find(
+                (x: any) => x?.id === 'candidates' && (x.value || x.description)
+            )
+            candidatesStr = candidatesInput?.value || candidatesInput?.description
+        }
+
+        if (typeof candidatesStr === 'string' && candidatesStr.length > 0) {
+            for (const id of candidatesStr.split(',')) {
+                const trimmedId = id.trim()
+                if (trimmedId) {
+                    this._pendingCandidateIdentityIds.add(trimmedId)
+                }
             }
         }
     }

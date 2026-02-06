@@ -20,4 +20,5 @@ export const statuses: StatusSource[] = [
     { id: 'requested', name: 'Requested', description: 'Account was requested' },
     { id: 'uncorrelated', name: 'Uncorrelated', description: 'Account has sources accounts pending correlation' },
     { id: 'activeReviews', name: 'Active reviews', description: 'Account has active fusion reviews' },
+    { id: 'candidate', name: 'Candidate', description: 'This identity is part of a pending Fusion review' },
 ]

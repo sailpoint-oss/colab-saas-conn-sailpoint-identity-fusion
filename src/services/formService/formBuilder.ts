@@ -56,6 +56,10 @@ export const buildFormInput = (
         })
     }
 
+    // Store candidate identity IDs for tracking candidate status on subsequent aggregations.
+    // This allows extracting candidate IDs from pending form instances without parsing keys.
+    formInput.candidates = candidates.map((c) => c.id).join(',')
+
     // Candidate attributes and scores (flat keys for form elements)
     candidates.forEach((candidate) => {
         if (!candidate || !candidate.id) return
