@@ -54,7 +54,7 @@ Developer Settings provide tools for testing, troubleshooting, and monitoring.
 |----------|-----------|-------------|
 | Testing major config changes | Yes (once) | Test with small batch first |
 | Schema changes (attribute mapping/definition) | Maybe | Discover Schema usually sufficient |
-| Stuck processing state | No | Use "Reset processing flag" in Source Settings |
+| Stuck processing state | No | Retry aggregation (auto-resets the stuck flag) |
 | Production environment | ⚠️ **Rarely** | High impact; requires careful planning |
 
 **Workflow:**
@@ -496,7 +496,7 @@ Advanced Connection Settings:
 | **HTTP 429 (rate limit)** | RPS too high | Lower RPS; ensure retry enabled |
 | **Aggregation timeout** | Provisioning timeout too low; slow API | Increase timeout; check ISC performance |
 | **Slow aggregation** | Low concurrency; no batching | Increase max concurrent requests; enable batching |
-| **Accounts stuck processing** | Timeout; unfinished run | Increase timeout; enable "Reset processing flag" |
+| **Accounts stuck processing** | Timeout; unfinished run | Increase timeout; retry aggregation (auto-resets stuck flag) |
 | **External logs not appearing** | Wrong URL; endpoint down | Verify URL; check endpoint availability |
 | **Reset not working** | Didn't disable after reset | Reset works once; must disable to prevent repeat |
 

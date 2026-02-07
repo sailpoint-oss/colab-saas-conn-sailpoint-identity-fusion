@@ -92,7 +92,6 @@ Controls which identities and sources are in scope and how processing is managed
 | **Correlate missing source accounts on aggregation?**       | Attempt to correlate new/missing source accounts each run                | No       | Default: true; helps with incremental correlation                                                                                                                                            |
 | **Force attribute refresh on each aggregation?**            | Force Normal-type attributes to refresh every run                        | No       | Applies only to Normal attributes; Unique attributes are only computed when a Fusion account is first created or when an existing account is activated. Can be expensive for large datasets. |
 | **Skip accounts with missing unique ID?**                   | Skip processing accounts without a fusion identity attribute value       | No       | Skipped accounts are logged for review; useful when some source accounts lack required identifier data                                                                                       |
-| **Reset processing flag in case of unfinished processing?** | Clear stuck processing state from prior incomplete run                   | No       | Use when a previous run left accounts in processing state                                                                                                                                    |
 
 ### Attribute Mapping Settings
 
@@ -196,12 +195,13 @@ Fine-tuning for API behavior, resilience, debugging, and proxy mode.
 
 ![Advanced Settings - Developer](docs/assets/images/config-advanced-developer.png)
 
-| Field                        | Description                                                   | Required                                    | Notes                                                                                        |
-| ---------------------------- | ------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Reset accounts?**          | Force rebuild of all Fusion accounts from scratch on next run | No                                          | **Use with caution in production**; useful for testing config changes; disable after one run |
-| **Enable external logging?** | Send connector logs to external endpoint                      | No                                          | For centralized monitoring and analysis                                                      |
-| **External logging URL**     | Endpoint URL for external logs                                | No (required when external logging enabled) | HTTPS recommended                                                                            |
-| **External logging level**   | Minimum log level to send externally                          | No (required when external logging enabled) | Options: **Error**, **Warn**, **Info**, **Debug**                                            |
+| Field                          | Description                                                   | Required                                    | Notes                                                                                                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Reset accounts?**            | Force rebuild of all Fusion accounts from scratch on next run | No                                          | **Use with caution in production**; useful for testing config changes; disable after one run                                                                                                    |
+| **Enable concurrency check?**  | Prevent concurrent account aggregations via a processing lock | No                                          | Default: true. When enabled, a lock is set at the start of each aggregation. If a prior run left the lock stuck, it is auto-reset and an error asks you to retry. Disable only for debugging. |
+| **Enable external logging?**   | Send connector logs to external endpoint                      | No                                          | For centralized monitoring and analysis                                                                                                                                                         |
+| **External logging URL**       | Endpoint URL for external logs                                | No (required when external logging enabled) | HTTPS recommended                                                                                                                                                                               |
+| **External logging level**     | Minimum log level to send externally                          | No (required when external logging enabled) | Options: **Error**, **Warn**, **Info**, **Debug**                                                                                                                                               |
 
 #### Advanced Connection Settings Section
 

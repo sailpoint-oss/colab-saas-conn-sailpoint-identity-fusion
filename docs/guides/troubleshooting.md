@@ -149,7 +149,7 @@ curl -X GET https://[tenant].api.identitynow.com/v3/sources \
 | **Identity Scope Query too strict** | Test query in ISC search | Relax query; or use `*` for all identities |
 | **Account filter excludes accounts** | Review filter logic | Adjust or remove **Account filter** |
 | **Sources not aggregated** | Check source aggregation history | Run aggregation on source systems first |
-| **Stuck processing state** | Check account history for "processing" status | Enable **Reset processing flag** once; run aggregation |
+| **Stuck processing state** | Check account history for "processing" status | Simply retry the aggregation; the connector auto-resets the flag and asks you to run again |
 | **Configuration error** | Review all configuration fields | Validate configuration |
 
 **Screenshot placeholder:** Source configuration.
@@ -586,28 +586,22 @@ Advanced Settings → Developer Settings:
 
 ### Issue 8.1: Stuck or inconsistent state
 
-**Symptom:** Accounts stuck in "processing" state; aggregation fails with state errors.
+**Symptom:** Aggregation fails with an error stating another aggregation is in progress or the previous one did not finish cleanly.
 
 **Solution:**
 
+The connector handles this automatically. When it detects a stuck processing flag from a prior incomplete run, it resets the flag and returns an error asking you to verify no other aggregation is running.
+
 ```
-1. Enable reset processing flag:
-   Source Settings → Processing Control
-   → Reset processing flag: Yes
+1. Confirm no other aggregation is currently in progress
 
-2. Save configuration
+2. Run account aggregation again
+   (The first attempt auto-cleared the stuck flag; this run proceeds normally)
 
-3. Run account aggregation
-   (This clears stuck processing state)
-
-4. Verify accounts updated
-
-5. Disable reset flag:
-   → Reset processing flag: No
-   (Prevents clearing state on every run)
-
-6. Save configuration
+3. Verify accounts updated
 ```
+
+If the problem persists after retrying, temporarily disable the **Enable concurrency check?** toggle in Advanced Settings → Developer Settings to bypass the lock, then re-enable it after a successful run.
 
 ### Issue 8.2: Need to rebuild all accounts
 
@@ -698,7 +692,7 @@ Advanced Settings → Developer Settings:
 | Proxy 401 | Password mismatch | Match passwords | [5.2](#issue-52-proxy-password-mismatch) |
 | Empty proxy response | Wrong response format | Return NDJSON or JSON array | [5.3](#issue-53-empty-or-invalid-response-from-proxy) |
 | Slow aggregation | Low concurrency; no batching | Increase concurrency; enable batching | [6.1](#issue-61-aggregation-very-slow) |
-| Stuck state | Processing flag not cleared | Enable reset processing flag once | [8.1](#issue-81-stuck-or-inconsistent-state) |
+| Stuck state | Processing flag not cleared | Retry aggregation (auto-resets flag) | [8.1](#issue-81-stuck-or-inconsistent-state) |
 
 ---
 

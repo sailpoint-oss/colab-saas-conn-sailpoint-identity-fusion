@@ -253,7 +253,6 @@ Configure **Source Settings → Processing Control** for account lifecycle manag
 | **Delete accounts with no authoritative accounts left?** | No for identity-only; Yes for source-driven | Auto-cleanup when source accounts are removed |
 | **Correlate missing source accounts on aggregation?** | Yes | Helps with incremental updates |
 | **Force attribute refresh on each aggregation?** | No | Applies only to Normal-type attributes; Unique attributes are only computed on account creation or activation. Expensive for large datasets. |
-| **Reset processing flag in case of unfinished processing?** | No (enable once if needed) | Use for recovery after failed runs |
 
 ---
 

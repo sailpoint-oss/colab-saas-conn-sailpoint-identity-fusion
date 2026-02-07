@@ -40,12 +40,21 @@ export const accountList = async (
     ServiceRegistry.setCurrent(serviceRegistry)
     const { log, fusion, forms, identities, schemas, sources, attributes, messaging } = serviceRegistry
 
+    let processLockAcquired = false
+
     try {
         log.info('Starting account list operation')
         const timer = log.timer()
 
         await sources.fetchAllSources()
         log.debug(`Loaded ${sources.managedSources.length} managed source(s)`)
+
+        // Set process lock to prevent concurrent aggregations.
+        // Must be called after fetchAllSources (which resolves fusionSourceId).
+        // If the flag is already active, setProcessLock resets it and throws,
+        // so the next retry will succeed without manual intervention.
+        await sources.setProcessLock()
+        processLockAcquired = true
 
         if (fusion.isReset()) {
             log.info('Reset flag detected, disabling reset and exiting')
@@ -141,5 +150,11 @@ export const accountList = async (
         timer.end(`✓ Account list operation completed successfully - ${accounts.length} account(s) processed`)
     } catch (error) {
         log.crash('Failed to list accounts', error)
+    } finally {
+        // Only release the lock if we successfully acquired it.
+        // If setProcessLock threw (flag was already active), it already reset the flag itself.
+        if (processLockAcquired) {
+            await sources.releaseProcessLock()
+        }
     }
 }

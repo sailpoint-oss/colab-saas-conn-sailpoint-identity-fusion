@@ -132,7 +132,6 @@ export interface SourcesSection {
 export interface ProcessingControlSection {
     deleteEmpty: boolean
     correlateOnAggregation: boolean
-    resetProcessingFlag: boolean
     forceAttributeRefresh: boolean
     skipAccountsWithMissingId: boolean
     maxHistoryMessages: number
@@ -196,9 +195,18 @@ export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSetti
 // Advanced Settings Menu
 // ============================================================================
 
-/** Developer/debug settings including reset flag and external logging. */
+/** Developer/debug settings including reset flag, concurrency check, and external logging. */
 export interface DeveloperSettingsSection {
     reset: boolean
+    /**
+     * Enable the concurrency check that prevents concurrent account aggregations.
+     * When enabled, a processing lock is set on the source at the start of each
+     * aggregation. If the lock is already active (from a prior incomplete run or
+     * a concurrent aggregation), it is automatically reset and an error is returned
+     * asking the user to verify no other aggregation is running before retrying.
+     * Enabled by default.
+     */
+    concurrencyCheckEnabled: boolean
     externalLoggingEnabled: boolean
     externalLoggingUrl?: string
     externalLoggingLevel?: 'error' | 'warn' | 'info' | 'debug'

@@ -13,6 +13,7 @@ import {
     OwnerDto,
     SourcesV2025ApiListSourcesRequest,
 } from 'sailpoint-api-client'
+import { ConnectorError, ConnectorErrorType } from '@sailpoint/connector-sdk'
 import { BaseConfig, FusionConfig, SourceConfig } from '../../model/config'
 import { ClientService } from '../clientService'
 import { LogService } from '../logService'
@@ -82,6 +83,7 @@ export class SourceService {
     private readonly spConnectorInstanceId: string
     private readonly taskResultRetries: number
     private readonly taskResultWait: number
+    private readonly concurrencyCheckEnabled: boolean
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -101,6 +103,7 @@ export class SourceService {
         this.spConnectorInstanceId = config.spConnectorInstanceId
         this.taskResultRetries = config.taskResultRetries
         this.taskResultWait = config.taskResultWait
+        this.concurrencyCheckEnabled = config.concurrencyCheckEnabled
     }
 
     // ------------------------------------------------------------------------
@@ -521,6 +524,103 @@ export class SourceService {
             return response.data
         }
         return await this.client.execute(updateSource)
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Process Lock Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Set the processing lock on the fusion source to prevent concurrent aggregations.
+     *
+     * Gated by the `concurrencyCheckEnabled` developer setting.
+     * When the setting is disabled, this method is a no-op.
+     *
+     * When enabled (default), this method sets a `processing` flag on the fusion
+     * source's connector attributes. If another aggregation is already in progress
+     * (the flag is already `true`), it **resets the flag** back to `false` and throws
+     * a `ConnectorError`, asking the user to verify there is no ongoing aggregation
+     * before retrying. This self-healing approach means a stuck flag from a prior
+     * crash is automatically cleared on the next attempt, so the subsequent retry
+     * will succeed.
+     *
+     * @throws {ConnectorError} if the processing flag is already active
+     */
+    public async setProcessLock(): Promise<void> {
+        if (!this.concurrencyCheckEnabled) {
+            this.log.debug('Concurrency check is disabled, skipping processing lock.')
+            return
+        }
+
+        const fusionSourceId = this.fusionSourceId
+
+        const { sourcesApi } = this.client
+        const getSource = async () => {
+            const response = await sourcesApi.getSource({ id: fusionSourceId })
+            return response.data
+        }
+        const source = await this.client.execute(getSource)
+        assert(source, 'Failed to fetch fusion source')
+
+        const processing = (source!.connectorAttributes as any)?.processing
+        if (processing === 'true' || processing === true) {
+            this.log.warn('Processing flag is active. Resetting it and aborting this run.')
+            // Reset the flag so the next attempt can proceed
+            await this.releaseProcessLock()
+            throw new ConnectorError(
+                'An account aggregation is already in progress or the previous one did not finish cleanly. ' +
+                'The processing flag has been reset. Please verify no other aggregation is running and try again.',
+                ConnectorErrorType.Generic
+            )
+        }
+
+        this.log.info('Setting processing lock to true.')
+        const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
+            id: fusionSourceId,
+            jsonPatchOperationV2025: [
+                {
+                    op: 'replace',
+                    path: '/connectorAttributes/processing',
+                    value: 'true',
+                },
+            ],
+        }
+        await this.patchSourceConfig(fusionSourceId, requestParameters)
+    }
+
+    /**
+     * Release the processing lock on the fusion source.
+     *
+     * Gated by the `concurrencyCheckEnabled` developer setting.
+     * When the setting is disabled, this method is a no-op.
+     *
+     * Called in `finally` blocks to ensure the lock is always released after an aggregation
+     * completes (whether successfully or with an error). Errors during release are logged
+     * but not re-thrown, since this runs during cleanup.
+     */
+    public async releaseProcessLock(): Promise<void> {
+        if (!this.concurrencyCheckEnabled) {
+            return
+        }
+
+        try {
+            const fusionSourceId = this.fusionSourceId
+            this.log.info('Releasing processing lock.')
+            const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
+                id: fusionSourceId,
+                jsonPatchOperationV2025: [
+                    {
+                        op: 'replace',
+                        path: '/connectorAttributes/processing',
+                        value: 'false',
+                    },
+                ],
+            }
+            await this.patchSourceConfig(fusionSourceId, requestParameters)
+        } catch (error) {
+            this.log.error(`Failed to release processing lock: ${error instanceof Error ? error.message : String(error)}`)
+            // Don't throw here as this is typically called in cleanup
+        }
     }
 
     // ------------------------------------------------------------------------

@@ -244,13 +244,6 @@
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Skip processing accounts that don't have a value for the configured fusion identity attribute, and log them for review"
-                        },
-                        {
-                            "key": "resetProcessingFlag",
-                            "label": "Reset processing flag in case of unfinished processing?",
-                            "type": "toggle",
-                            "required": false,
-                            "helpKey": "Clear any stuck processing state from a prior, incomplete run so that processing can safely restart"
                         }
                     ]
                 }
@@ -700,6 +693,13 @@
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Force the connector to rebuild accounts from scratch on the next run (use during testing or troubleshooting, use carefully in production)"
+                        },
+                        {
+                            "key": "concurrencyCheckEnabled",
+                            "label": "Enable concurrency check?",
+                            "type": "toggle",
+                            "required": false,
+                            "helpKey": "Prevent concurrent account aggregations by setting a processing lock on the source. When enabled, an aggregation that finds a prior lock will automatically reset it and return an error asking you to verify no other aggregation is running before retrying. Enabled by default."
                         },
                         {
                             "key": "externalLoggingEnabled",

@@ -118,7 +118,6 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     const taskResultWaitSeconds = config.taskResultWait ?? 1
     config.taskResultWait = taskResultWaitSeconds * 1000
     config.correlateOnAggregation = config.correlateOnAggregation ?? false
-    config.resetProcessingFlag = config.resetProcessingFlag ?? false
     config.deleteEmpty = config.deleteEmpty ?? false
     config.forceAttributeRefresh = config.forceAttributeRefresh ?? false
     config.skipAccountsWithMissingId = config.skipAccountsWithMissingId ?? false
@@ -164,6 +163,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     // Developer Settings defaults
     // ============================================================================
     config.reset = config.reset ?? false
+    config.concurrencyCheckEnabled = config.concurrencyCheckEnabled ?? true
     // Default from connector-spec.json: provisioningTimeout: 300
     config.provisioningTimeout = config.provisioningTimeout ?? 300
     config.externalLoggingEnabled = config.externalLoggingEnabled ?? false
