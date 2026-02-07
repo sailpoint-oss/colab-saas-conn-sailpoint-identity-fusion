@@ -28,12 +28,12 @@ export const accountDisable = async (
     try {
         log.info(`Disabling account: ${input.identity}`)
         assert(input.identity, 'Account identity is required')
+        const timer = log.timer()
 
-        log.debug('Step 1: Loading sources and schema')
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
+        timer.phase('Step 1: Loading sources and schema', 'debug')
 
-        log.debug('Step 2: Rebuilding fusion account with fresh attributes')
         const attributeOperations: AttributeOperations = {
             refreshMapping: true,
             refreshDefinition: true,
@@ -42,16 +42,17 @@ export const accountDisable = async (
         const fusionAccount = await rebuildFusionAccount(input.identity, attributeOperations, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
         log.debug(`Found fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
+        timer.phase('Step 2: Rebuilding fusion account with fresh attributes', 'debug')
 
-        log.debug('Step 3: Disabling fusion account')
         fusionAccount.disable()
+        timer.phase('Step 3: Disabling fusion account', 'debug')
 
-        log.debug('Step 4: Generating ISC account')
         const iscAccount = await fusion.getISCAccount(fusionAccount)
         assert(iscAccount, 'Failed to generate ISC account from fusion account')
+        timer.phase('Step 4: Generating ISC account', 'debug')
 
         res.send(iscAccount)
-        log.info(`✓ Account disable completed for ${input.identity}`)
+        timer.end(`✓ Account disable completed for ${input.identity}`)
     } catch (error) {
         log.crash(`Failed to disable account ${input.identity}`, error)
     }

@@ -428,7 +428,7 @@ export class SourceService {
      */
     public async aggregateManagedSources(): Promise<void> {
         const managedSources = this.managedSources
-        this.log.debug(`Checking aggregation status for ${managedSources.length} managed source(s)`)
+        this.log.debug(`Checking aggregation control for ${managedSources.length} managed source(s)`)
 
         // Parallelize aggregation checks for better performance
         const aggregationChecks = await Promise.all(

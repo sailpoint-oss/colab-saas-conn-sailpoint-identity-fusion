@@ -149,7 +149,8 @@ export class FusionService {
      */
     public async preProcessFusionAccounts(): Promise<void> {
         const fusionAccounts = this.sources.fusionAccounts
-        await forEachBatched(fusionAccounts, (x: Account) => this.preProcessFusionAccount(x).then(() => {}))
+        this.log.debug(`Pre-processing ${fusionAccounts.length} fusion account(s)`)
+        await forEachBatched(fusionAccounts, (x: Account) => this.preProcessFusionAccount(x).then(() => { }))
     }
 
     /**
@@ -173,7 +174,7 @@ export class FusionService {
     public async processFusionAccounts(): Promise<void> {
         const fusionAccounts = this.sources.fusionAccounts
         this.log.info(`Processing ${fusionAccounts.length} fusion account(s)`)
-        await forEachBatched(fusionAccounts, (x: Account) => this.processFusionAccount(x).then(() => {}))
+        await forEachBatched(fusionAccounts, (x: Account) => this.processFusionAccount(x).then(() => { }))
         this.log.info('Fusion accounts processing completed')
     }
 
@@ -191,6 +192,10 @@ export class FusionService {
         )
 
         const fusionAccount = FusionAccount.fromFusionAccount(account)
+        this.log.debug(
+            `Pre-processing fusion account: ${fusionAccount.name} (${account.nativeIdentity}), ` +
+            `identityId=${fusionAccount.identityId ?? 'none'}, disabled=${fusionAccount.disabled}, uncorrelated=${fusionAccount.uncorrelated}`
+        )
 
         // During aggregation, assume the account is NOT a candidate unless a pending
         // review is detected later. The status will be re-applied in
@@ -210,6 +215,7 @@ export class FusionService {
         fusionAccount.setKey(key)
 
         this.setFusionAccount(fusionAccount)
+        this.log.debug(`Registered fusion account: ${fusionAccount.name} -> key=${key.simple.id}`)
 
         return fusionAccount
     }
@@ -242,26 +248,36 @@ export class FusionService {
         }
 
         assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
-        const identityId = account.identityId!
+
 
         // Use for...of instead of forEach for better performance
         for (const sourceId of fusionAccount.listReviewerSources()) {
             this.setReviewerForSource(fusionAccount, sourceId)
         }
+        this.log.debug(`Applied reviewer layer for ${fusionAccount.name}: ${fusionAccount.listReviewerSources().length} source(s)`)
 
-        const identity = this.identities.getIdentityById(identityId)
-        if (identity) {
-            fusionAccount.addIdentityLayer(identity)
+        const isIdentity = !account.uncorrelated && account.identityId
+        if (isIdentity) {
+            const identityId = account.identityId!
+            const identity = this.identities.getIdentityById(identityId)
+            if (identity) {
+                fusionAccount.addIdentityLayer(identity)
+            }
 
             const fusionDecision = this.forms.getFusionAssignmentDecision(identityId)
             if (fusionDecision) {
                 fusionAccount.addFusionDecisionLayer(fusionDecision)
             }
+            this.log.debug(`Applied identity layer for ${fusionAccount.name}: identityId=${identityId}`)
         }
 
         // Pass direct reference to work queue - deletions will remove processed accounts
         // No snapshot or copy needed: JavaScript's event loop ensures atomic operations
         fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
+        this.log.debug(
+            `Applied managed account layer for ${fusionAccount.name}: ` +
+            `${fusionAccount.accountIds.length} account(s), ${fusionAccount.missingAccountIds.length} missing`
+        )
 
         if (this.commandType === StandardCommand.StdAccountList) {
             await this.attributes.registerUniqueAttributes(fusionAccount)
@@ -280,6 +296,11 @@ export class FusionService {
         if (correlate && fusionAccount.missingAccountIds.length > 0) {
             await this.identities.correlateAccounts(fusionAccount)
         }
+
+        this.log.debug(
+            `Completed processing fusion account: ${fusionAccount.name}, ` +
+            `needsRefresh=${fusionAccount.needsRefresh}, sources=[${fusionAccount.sources.join(', ')}]`
+        )
 
         return fusionAccount
     }
@@ -341,6 +362,7 @@ export class FusionService {
 
         if (!this.fusionIdentityMap.has(identityId)) {
             const fusionAccount = FusionAccount.fromIdentity(identity)
+            this.log.debug(`Processing new identity: ${identity.name} (${identityId})`)
             fusionAccount.addIdentityLayer(identity)
 
             assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
@@ -365,6 +387,7 @@ export class FusionService {
 
             // Use setter method to add to appropriate map
             this.setFusionAccount(fusionAccount)
+            this.log.debug(`Registered identity as fusion account: ${identity.name} -> key=${key.simple.id}`)
         }
     }
 
@@ -445,9 +468,16 @@ export class FusionService {
         let fusionAccount: FusionAccount
         if (fusionDecision.newIdentity) {
             fusionAccount = FusionAccount.fromFusionDecision(fusionDecision)
+            this.log.debug(
+                `Created fusion account from decision: ${fusionDecision.account.name} [${fusionDecision.account.sourceName}], newIdentity=true`
+            )
         } else {
             fusionAccount = this.fusionIdentityMap.get(fusionDecision.identityId!)!
             assert(fusionAccount, 'Fusion account not found')
+            this.log.debug(
+                `Applying decision to existing identity: ${fusionDecision.account.name} [${fusionDecision.account.sourceName}], ` +
+                `identityId=${fusionDecision.identityId}`
+            )
         }
 
         fusionAccount.addFusionDecisionLayer(fusionDecision)
@@ -602,7 +632,7 @@ export class FusionService {
     public async analyzeManagedAccounts(): Promise<void> {
         const { managedAccounts } = this.sources
 
-        await forEachBatched(managedAccounts, (x: Account) => this.analyzeManagedAccount(x).then(() => {}))
+        await forEachBatched(managedAccounts, (x: Account) => this.analyzeManagedAccount(x).then(() => { }))
     }
 
     /**
@@ -627,6 +657,8 @@ export class FusionService {
 
             // Keep a reference for reporting (these accounts are not added to fusionAccountMap)
             this.potentialDuplicateAccounts.push(fusionAccount)
+        } else {
+            this.log.debug(`No match found for managed account: ${name} [${sourceName}]`)
         }
 
         return fusionAccount
@@ -728,6 +760,9 @@ export class FusionService {
      */
     private async preProcessManagedAccount(account: Account): Promise<FusionAccount> {
         const fusionAccount = FusionAccount.fromManagedAccount(account)
+        this.log.debug(
+            `Pre-processing managed account: ${account.name} [${account.sourceName}], accountId=${account.id}`
+        )
 
         assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
         // Single account - no need to create a map, just pass a minimal map

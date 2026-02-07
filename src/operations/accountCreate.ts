@@ -40,13 +40,13 @@ export const accountCreate = async (
         assert(identityName, 'Identity name is required for account creation')
 
         log.info(`Creating account for identity: ${identityName}`)
-        log.debug('Step 1: Loading fusion accounts and initializing')
+        const timer = log.timer()
 
         await sources.fetchFusionAccounts()
         await attributes.initializeCounters()
         await fusion.preProcessFusionAccounts()
+        timer.phase('Step 1: Loading fusion accounts and initializing', 'debug')
 
-        log.debug('Step 2: Fetching identity information')
         const identity = await identities.fetchIdentityByName(identityName)
         assert(identity, `Identity not found: ${identityName}`)
         assert(identity.id, `Identity ID is missing for: ${identityName}`)
@@ -54,9 +54,10 @@ export const accountCreate = async (
         const fusionIdentity = fusion.getFusionIdentity(identity.id)
         assert(fusionIdentity, `Fusion identity not found for identity ID: ${identity.id}`)
         log.debug(`Found fusion identity: ${fusionIdentity.nativeIdentity}`)
+        timer.phase('Step 2: Fetching identity information', 'debug')
 
         const actions = [...(input.attributes.actions ?? [])]
-        log.info(`Step 3: Processing ${actions.length} action(s)`)
+        log.info(`Processing ${actions.length} action(s)`)
 
         for (const action of actions) {
             log.debug(`Executing action: ${action}`)
@@ -77,13 +78,14 @@ export const accountCreate = async (
                     log.crash(`Unsupported action: ${action}`)
             }
         }
+        timer.phase(`Step 3: Processing ${actions.length} action(s)`, 'debug')
 
-        log.debug('Step 4: Generating ISC account')
         const iscAccount = await fusion.getISCAccount(fusionIdentity)
         assert(iscAccount, 'Failed to generate ISC account from fusion identity')
+        timer.phase('Step 4: Generating ISC account', 'debug')
 
         res.send(iscAccount)
-        log.info(`✓ Account creation completed for ${identityName}`)
+        timer.end(`✓ Account creation completed for ${identityName}`)
     } catch (error) {
         log.crash(`Failed to create account ${identityName}`, error)
     }

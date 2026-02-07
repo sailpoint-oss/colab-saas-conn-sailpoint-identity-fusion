@@ -118,6 +118,43 @@ export function getCallerFunctionName(skipFrames: number = 2): string | undefine
 }
 
 /**
+ * Lightweight timer for tracking per-phase elapsed time within an operation.
+ * Created via {@link LogService.timer}. Calls delegate to the parent LogService
+ * so caller-origin detection and external logging continue to work.
+ */
+export class PhaseTimer {
+    private log: LogService
+    private operationStart: number
+    private phaseStart: number
+
+    constructor(log: LogService) {
+        this.log = log
+        this.operationStart = Date.now()
+        this.phaseStart = this.operationStart
+    }
+
+    /** Logs message with elapsed time since last checkpoint, then resets the phase clock. */
+    phase(message: string, level: LogLevel = 'info'): void {
+        const now = Date.now()
+        const elapsed = now - this.phaseStart
+        this.log[level](`${message} (${PhaseTimer.formatElapsed(elapsed)})`)
+        this.phaseStart = now
+    }
+
+    /** Logs message with total elapsed time since timer creation. */
+    end(message: string, level: LogLevel = 'info'): void {
+        const totalElapsed = Date.now() - this.operationStart
+        this.log[level](`${message} (total: ${PhaseTimer.formatElapsed(totalElapsed)})`)
+    }
+
+    /** Formats milliseconds as "Xms" (<1s) or "X.Ys" (>=1s). */
+    private static formatElapsed(ms: number): string {
+        if (ms < 1000) return `${ms}ms`
+        return `${(ms / 1000).toFixed(1)}s`
+    }
+}
+
+/**
  * Structured logging service wrapping the SailPoint SDK logger.
  *
  * Features:
@@ -395,6 +432,14 @@ export class LogService {
         }
 
         throw new ConnectorError(message, ConnectorErrorType.Generic)
+    }
+
+    /**
+     * Creates a {@link PhaseTimer} for tracking per-phase elapsed time.
+     * Call `phase()` after each phase/step completes, and `end()` for the final summary.
+     */
+    timer(): PhaseTimer {
+        return new PhaseTimer(this)
     }
 
     /**

@@ -1019,7 +1019,7 @@ export class FusionAccount {
     private setManagedAccount(account: Account): void {
         const accountId = account.id!
         const isIdentity = !account.uncorrelated
-        const isNewAccount = !this._accountIds.has(accountId)
+        const isNewAccount = !this._previousAccountIds.has(accountId)
 
         if (isNewAccount) {
             this.setNeedsRefresh(true)

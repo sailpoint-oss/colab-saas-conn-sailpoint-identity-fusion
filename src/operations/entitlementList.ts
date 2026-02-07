@@ -28,6 +28,7 @@ export const entitlementList = async (
 
     try {
         log.info(`Listing entitlements for type: ${input.type}`)
+        const timer = log.timer()
 
         switch (input.type) {
             case 'status':
@@ -41,7 +42,7 @@ export const entitlementList = async (
                 throw new ConnectorError(`Invalid entitlement type ${input.type}`, ConnectorErrorType.Generic)
         }
 
-        log.info(`✓ Entitlement list completed for type: ${input.type}`)
+        timer.end(`✓ Entitlement list completed for type: ${input.type}`)
     } catch (error) {
         log.crash(`Failed to list entitlements for type ${input.type}`, error)
     }

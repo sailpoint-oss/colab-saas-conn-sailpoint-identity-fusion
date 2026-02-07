@@ -42,7 +42,7 @@ export const accountList = async (
 
     try {
         log.info('Starting account list operation')
-        log.info('PHASE 1: Setup and initialization')
+        const timer = log.timer()
 
         await sources.fetchAllSources()
         log.debug(`Loaded ${sources.managedSources.length} managed source(s)`)
@@ -63,8 +63,8 @@ export const accountList = async (
 
         await attributes.initializeCounters()
         log.debug('Attribute counters initialized')
+        timer.phase('PHASE 1: Setup and initialization')
 
-        log.info('PHASE 2: Fetching data in parallel')
         log.debug('Fetching fusion accounts, identities, managed accounts, and sender')
         const fetchPromises = [
             sources.fetchFusionAccounts(),
@@ -84,8 +84,8 @@ export const accountList = async (
                 await identities.fetchIdentityById(fusionOwner.id!)
             }
         }
+        timer.phase('PHASE 2: Fetching data in parallel')
 
-        log.info('PHASE 3: Work queue depletion - processing accounts')
         await forms.fetchFormData()
         log.debug('Form data loaded')
 
@@ -105,15 +105,15 @@ export const accountList = async (
         log.debug('Step 3.4: Processing managed accounts (deduplication)')
         await fusion.processManagedAccounts()
         log.info(`Work queue processing complete - ${sources.managedAccountsById.size} unprocessed account(s) remaining`)
+        timer.phase('PHASE 3: Work queue depletion - processing accounts')
 
         if (fusion.fusionReportOnAggregation) {
-            log.info('PHASE 4: Generating fusion report')
             const fusionOwnerAccount = fusion.getFusionIdentity(fusionOwner.id!)
             softAssert(fusionOwnerAccount, 'Fusion owner account not found')
             if (fusionOwnerAccount) {
                 await generateReport(fusionOwnerAccount, false, serviceRegistry)
-                log.info('Fusion report generated and sent successfully')
             }
+            timer.phase('PHASE 4: Generating fusion report')
         }
 
         // Memory optimization: clear analyzed account arrays regardless of report flag.
@@ -121,13 +121,12 @@ export const accountList = async (
         // persist for the lifetime of the operation.
         fusion.clearAnalyzedAccounts()
 
-        log.info('PHASE 5: Finalizing and sending accounts')
         const accounts = await fusion.listISCAccounts()
         assert(accounts, 'Failed to list ISC accounts')
         log.info(`Sending ${accounts.length} account(s) to platform`)
         accounts.forEach((x) => res.send(x))
+        timer.phase('PHASE 5: Finalizing and sending accounts')
 
-        log.info('PHASE 6: Cleanup')
         await forms.cleanUpForms()
         log.debug('Form cleanup completed')
 
@@ -139,7 +138,7 @@ export const accountList = async (
         sources.clearFusionAccounts()
         log.debug('Account caches cleared from memory')
 
-        log.info(`✓ Account list operation completed successfully - ${accounts.length} account(s) processed`)
+        timer.end(`✓ Account list operation completed successfully - ${accounts.length} account(s) processed`)
     } catch (error) {
         log.crash('Failed to list accounts', error)
     }

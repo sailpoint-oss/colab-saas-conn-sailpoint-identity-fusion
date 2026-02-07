@@ -21,9 +21,10 @@ export const testConnection = async (
 
     try {
         log.info('Testing connection')
+        const timer = log.timer()
 
-        log.info('✓ Test connection completed')
         res.send({})
+        timer.end('✓ Test connection completed')
     } catch (error) {
         log.crash('Failed to test connection', error)
     }
