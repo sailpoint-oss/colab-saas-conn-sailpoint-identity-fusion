@@ -16,8 +16,8 @@ export const fusionAction = async (
     log.debug(`Fusion action called for account ${fusionAccount.name} with operation ${op}`)
 
     if (op === AttributeChangeOp.Add) {
-        // Reserved for future fusion creation logic
+        fusionAccount.addAction('fusion')
     } else if (op === AttributeChangeOp.Remove) {
-        // Reserved for future fusion removal logic
+        fusionAccount.removeAction('fusion')
     }
 }

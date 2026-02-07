@@ -44,8 +44,8 @@ export const accountUpdate = async (
         timer.phase('Step 1: Loading sources and schema', 'debug')
 
         const attributeOperations: AttributeOperations = {
-            refreshMapping: true,
-            refreshDefinition: true,
+            refreshMapping: false,
+            refreshDefinition: false,
             resetDefinition: false,
         }
         const fusionAccount = await rebuildFusionAccount(input.identity, attributeOperations, serviceRegistry)

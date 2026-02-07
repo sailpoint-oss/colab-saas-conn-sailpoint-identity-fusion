@@ -34,6 +34,7 @@ export class AttributeService {
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly sourceConfigs: SourceConfig[]
     private readonly maxAttempts?: number
+    private readonly forceAttributeRefresh: boolean
 
     // ------------------------------------------------------------------------
     // Constructor
@@ -60,6 +61,7 @@ export class AttributeService {
         this.sourceConfigs = config.sources
         this.maxAttempts = config.maxAttempts
         this.skipAccountsWithMissingId = config.skipAccountsWithMissingId
+        this.forceAttributeRefresh = config.forceAttributeRefresh
         // Clone attribute definitions into an internal array so we never touch
         // config.attributeDefinitions after construction, and always have a values Set.
         this.attributeDefinitionConfig =
@@ -215,6 +217,13 @@ export class AttributeService {
             const schemaAttributes = this.schemas.listSchemaAttributeNames()
             // Process each schema attribute
             for (const attribute of schemaAttributes) {
+                // Skip mapping for attributes that overlap with isUnique attribute definitions
+                // when there's an existing current value (preserve generated unique values)
+                const definition = this.getAttributeDefinition(attribute)
+                if (definition && isUniqueAttribute(definition) && attributeBag.current[attribute] !== undefined) {
+                    continue
+                }
+
                 // Build processing configuration (merges schema with attributeMaps)
                 const processingConfig = this.attributeMappingConfig.get(attribute)!
 
@@ -276,7 +285,7 @@ export class AttributeService {
      * @param fusionAccount - The fusion account to refresh non-unique attributes for
      */
     public async refreshNonUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh) return
+        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
         this.log.debug(
             `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
         )

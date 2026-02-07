@@ -37,7 +37,11 @@ export const registerHandlebarsHelpers = (): void => {
             return 'N/A'
         }
         return scores
-            .map((score) => `${score.attribute}: ${score.score}% (${score.isMatch ? 'Match' : 'No Match'})`)
+            .map((score) => {
+                const num = typeof score.score === 'number' ? score.score : Number.parseFloat(String(score.score))
+                const trimmedScore = Number.isFinite(num) ? parseFloat(num.toFixed(2)) : score.score
+                return `${score.attribute}: ${trimmedScore}% (${score.isMatch ? 'Match' : 'No Match'})`
+            })
             .join(', ')
     })
 

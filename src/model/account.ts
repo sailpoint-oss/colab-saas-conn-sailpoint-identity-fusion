@@ -292,6 +292,7 @@ export class FusionAccount {
         fusionAccount._originSource = account.sourceName ?? undefined
         fusionAccount.setUncorrelated()
         fusionAccount.setUncorrelatedAccount(account.id!)
+        fusionAccount.setNeedsReset(true)
         return fusionAccount
     }
 
@@ -851,36 +852,33 @@ export class FusionAccount {
 
     /**
      * Add managed account layer to this fusion account.
-     * 
-     * This method processes managed accounts from the shared work queue and performs two critical operations:
-     * 1. Identifies and processes accounts that belong to this fusion account based on identity correlation
-     * 2. Removes processed accounts from the shared queue to prevent duplicate processing
-     * 
-     * Work Queue Pattern:
-     * - accountsById is typically the shared this.sources.managedAccountsById map
-     * - As accounts are processed, they're deleted from the map (working queue)
-     * - This ensures subsequent processing phases (fusion → identity → managed) only see unprocessed accounts
-     * - The queue gets depleted: fetchFormData → processFusionAccounts → processIdentities → processManagedAccounts
-     * 
-     * Thread Safety:
-     * - JavaScript's single-threaded event loop ensures map operations are atomic
-     * - Multiple async operations (via Promise.all) won't corrupt the map
-     * - Deletions are safe even during parallel processing
-     * 
+     *
+     * Iterates the shared work queue and claims accounts that belong to this
+     * fusion account.  For each account:
+     *
+     * 1. **Identity match** (`account.identityId === this._identityId`):
+     *    the account is correlated — added to `_accountIds` only.
+     * 2. **Previous-run match** (`_previousAccountIds.has(id)`):
+     *    the account was known before but is not identity-matched —
+     *    added to both `_accountIds` and `_missingAccountIds`.
+     *
+     * Claimed accounts are deleted from the map so subsequent processing
+     * phases (fusion → identity → managed) only see unprocessed accounts.
+     *
      * @param accountsById - Shared work queue of managed accounts (typically this.sources.managedAccountsById)
      */
     public addManagedAccountLayer(accountsById: Map<string, Account>): void {
-        const processedAccountIds = this.processAccountsForLayer(accountsById)
-
-        // Remove processed accounts from the working queue so they won't be processed again
-        // This is critical: managedAccountsById acts as a queue that gets depleted as
-        // fusion/identity processing happens, leaving only uncorrelated accounts for
-        // the final managed account processing phase
-        this.deleteProcessedAccounts(accountsById, processedAccountIds)
-
-        // Rebuild account/missing-account ID sets using the previously stored
-        // IDs and the managed accounts that were actually processed.
-        this.rebuildAccountSetsAfterManagedLayer(processedAccountIds)
+        for (const [id, account] of accountsById) {
+            if (this._identityId !== undefined && account.identityId === this._identityId) {
+                this.setCorrelatedAccount(id)
+                this.setManagedAccount(account)
+                accountsById.delete(id)
+            } else if (this._previousAccountIds.has(id) || this._missingAccountIds.has(id)) {
+                this.setUncorrelatedAccount(id)
+                this.setManagedAccount(account)
+                accountsById.delete(id)
+            }
+        }
 
         // Update orphan status based on final account state
         // An account is orphaned if it has no managed accounts and is not a baseline identity
@@ -890,103 +888,6 @@ export class FusionAccount {
         } else {
             this._statuses.delete('orphan')
         }
-    }
-
-    /**
-     * Process accounts that belong to this fusion account.
-     * 
-     * Iterates through all accounts in the work queue and identifies which ones
-     * belong to this fusion account based on shouldProcessAccount criteria.
-     * 
-     * @param accountsById - The shared work queue of managed accounts
-     * @returns Array of account IDs that were processed and should be removed from the queue
-     */
-    private processAccountsForLayer(accountsById: Map<string, Account>): string[] {
-        const processedIds: string[] = []
-
-        for (const [id, account] of accountsById.entries()) {
-            if (this.shouldProcessAccount(id, account)) {
-                this.setManagedAccount(account)
-                processedIds.push(id)
-            }
-        }
-
-        return processedIds
-    }
-
-    /**
-     * Determine if an account should be processed for this fusion account.
-     * 
-     * An account belongs to this fusion account if:
-     * 1. It's in the missingAccountIds list (pre-determined accounts from fusion account attributes)
-     * 2. It's already correlated to this identity (account.identityId matches this._identityId)
-     * 
-     * These criteria ensure each managed account is processed by exactly one fusion account,
-     * preventing duplicate processing.
-     * 
-     * @param id - Account ID to check
-     * @param account - Account object to check
-     * @returns true if this account should be processed by this fusion account
-     */
-    private shouldProcessAccount(id: string, account: Account): boolean {
-        return (
-            this._missingAccountIds.has(id) ||
-            (this._identityId !== undefined && account.identityId === this._identityId)
-        )
-    }
-
-    /**
-     * Delete processed accounts from the shared working queue.
-     * 
-     * This is a critical part of the work queue pattern:
-     * - Removes accounts that have been claimed by this fusion account
-     * - Prevents subsequent processing phases from re-processing these accounts
-     * - Ensures processManagedAccounts only sees truly uncorrelated accounts
-     * 
-     * Thread Safety:
-     * JavaScript's single-threaded event loop ensures map operations are atomic.
-     * Even with Promise.all creating concurrent async operations, the actual
-     * map.delete() calls execute sequentially, preventing corruption.
-     * 
-     * @param accountsById - The shared work queue (this.sources.managedAccountsById)
-     * @param processedIds - Array of account IDs to remove from the queue
-     */
-    private deleteProcessedAccounts(accountsById: Map<string, Account>, processedIds: string[]): void {
-        for (const id of processedIds) {
-            accountsById.delete(id)
-        }
-    }
-
-    /**
-     * Rebuild account and missing-account ID sets based on the managed accounts
-     * that were actually processed for this fusion account.
-     *
-     * Uses _previousAccountIds as the baseline of what was stored on the fusion
-     * account in the previous run. Any previous ID that did not have a managed
-     * account match in this run is discarded from both _accountIds and
-     * _missingAccountIds.
-     *
-     * After rebuilding, _previousAccountIds is updated to the union of the
-     * current account and missing-account IDs so that it can be used as the
-     * baseline on the next run.
-     */
-    private rebuildAccountSetsAfterManagedLayer(processedAccountIds: string[]): void {
-        if (this._previousAccountIds.size > 0) {
-            const processedSet = new Set(processedAccountIds)
-
-            // Drop any previously stored IDs that did not have a managed
-            // account match in this run.
-            for (const id of this._previousAccountIds) {
-                if (!processedSet.has(id)) {
-                    this._missingAccountIds.delete(id)
-                    this._accountIds.delete(id)
-                }
-            }
-        }
-
-        // Update previous IDs to reflect the current state so that the next run
-        // can use them as its baseline.
-        this._previousAccountIds = new Set([...this._accountIds, ...this._missingAccountIds])
     }
 
     /**
@@ -1011,26 +912,21 @@ export class FusionAccount {
 
     /**
      * Processes a single managed source account into this fusion account.
-     * Updates correlation status, triggers refresh if the account is new or recently modified,
-     * and adds its attributes to the source attribute layers.
+     * Triggers refresh if the account is new or recently modified and adds
+     * its attributes to the source attribute layers.
+     *
+     * ID-set membership (_accountIds / _missingAccountIds) is managed by the
+     * caller (addManagedAccountLayer); this method only handles refresh logic
+     * and source-attribute bookkeeping.
      *
      * @param account - The managed account to absorb
      */
     private setManagedAccount(account: Account): void {
         const accountId = account.id!
-        const isIdentity = !account.uncorrelated
         const isNewAccount = !this._previousAccountIds.has(accountId)
 
         if (isNewAccount) {
             this.setNeedsRefresh(true)
-        }
-
-        if (isIdentity) {
-            if (isNewAccount) {
-                this.setCorrelatedAccount(accountId)
-            }
-        } else {
-            this.setUncorrelatedAccount(accountId)
         }
 
         if (!this._needsRefresh) {

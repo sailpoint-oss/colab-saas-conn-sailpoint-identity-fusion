@@ -254,7 +254,6 @@ export class FusionService {
         for (const sourceId of fusionAccount.listReviewerSources()) {
             this.setReviewerForSource(fusionAccount, sourceId)
         }
-        this.log.debug(`Applied reviewer layer for ${fusionAccount.name}: ${fusionAccount.listReviewerSources().length} source(s)`)
 
         const isIdentity = !account.uncorrelated && account.identityId
         if (isIdentity) {
@@ -651,8 +650,9 @@ export class FusionService {
         this.analyzedManagedAccounts.push(fusionAccount)
 
         if (fusionAccount.isMatch) {
+            const matchCount = fusionAccount.fusionMatches.length
             this.log.info(
-                `Potential match found for managed account ${name} [${sourceName}] - ${fusionAccount.fusionMatches.length} candidate(s)`
+                `POTENTIAL MATCH FOUND: ${name} [${sourceName}] - ${matchCount} candidate(s)`
             )
 
             // Keep a reference for reporting (these accounts are not added to fusionAccountMap)
@@ -737,8 +737,7 @@ export class FusionService {
             const identity = this.fusionIdentityMap.get(identityId)
             if (identity) {
                 identity.addStatus(
-                    'candidate',
-                    `Flagged as candidate for ${fusionAccount.name ?? 'unknown'} [${fusionAccount.sourceName}]`
+                    'candidate'
                 )
                 this.log.debug(`Flagged identity ${identityId} as candidate for ${fusionAccount.name}`)
             }
@@ -749,6 +748,7 @@ export class FusionService {
      * Set a reviewer for a specific source
      */
     private setReviewerForSource(fusionAccount: FusionAccount, sourceId: string): void {
+        this.log.debug(`Setting reviewer for ${fusionAccount.name} -> sourceId=${sourceId}`)
         fusionAccount.setSourceReviewer(sourceId)
         const reviewers: Set<FusionAccount> = this.reviewersBySourceId.get(sourceId) ?? new Set()
         reviewers.add(fusionAccount)
@@ -765,7 +765,7 @@ export class FusionService {
         )
 
         assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
-        // Single account - no need to create a map, just pass a minimal map
+        // Single account - pass a minimal map so we don't mutate the shared work queue
         fusionAccount.addManagedAccountLayer(new Map([[account.id!, account]]))
 
         this.attributes.mapAttributes(fusionAccount)
@@ -901,7 +901,7 @@ export class FusionService {
                     scores: match.scores.map((score) => ({
                         attribute: score.attribute,
                         algorithm: score.algorithm,
-                        score: score.score,
+                        score: parseFloat(score.score.toFixed(2)),
                         fusionScore: score.fusionScore,
                         isMatch: score.isMatch,
                         comment: score.comment,

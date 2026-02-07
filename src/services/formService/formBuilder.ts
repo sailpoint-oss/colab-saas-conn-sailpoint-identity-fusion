@@ -83,11 +83,12 @@ export const buildFormInput = (
                     const algorithmKey = String(score.algorithm ?? 'unknown')
                     const scoreValue = Number(score.score)
                     const thresholdValue = score.fusionScore
+                    const trimmedScore = Number.isFinite(scoreValue) ? parseFloat(scoreValue.toFixed(2)) : undefined
 
                     // Format: "Score: X [Y]" where X is the score and Y is the threshold
                     const displayValue = thresholdValue !== undefined && thresholdValue !== null
-                        ? `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'} [${thresholdValue}]`
-                        : `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'}`
+                        ? `Score: ${trimmedScore !== undefined ? trimmedScore : 'N/A'} [${thresholdValue}]`
+                        : `Score: ${trimmedScore !== undefined ? trimmedScore : 'N/A'}`
 
                     formInput[`${candidateId}.${attrKey}.${algorithmKey}.score`] = displayValue
                 }
@@ -278,11 +279,12 @@ export const buildFormFields = (
                     const algorithm = ALGORITHM_LABELS[algorithmKey] ?? algorithmKey
                     const scoreValue = Number(score.score)
                     const thresholdValue = score.fusionScore
+                    const trimmedScore = Number.isFinite(scoreValue) ? parseFloat(scoreValue.toFixed(2)) : undefined
 
                     // Format: "Score: X [Y]" where X is the score and Y is the threshold
                     const displayValue = thresholdValue !== undefined && thresholdValue !== null
-                        ? `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'} [${thresholdValue}]`
-                        : `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'}`
+                        ? `Score: ${trimmedScore !== undefined ? trimmedScore : 'N/A'} [${thresholdValue}]`
+                        : `Score: ${trimmedScore !== undefined ? trimmedScore : 'N/A'}`
 
                     candidateElements.push({
                         id: `${candidateId}.${attrKey}.${algorithmKey}.score`,
@@ -551,11 +553,12 @@ export const buildFormInputs = (
                     const algorithmKey = String(score.algorithm ?? 'unknown')
                     const scoreValue = Number(score.score)
                     const thresholdValue = score.fusionScore
+                    const trimmedScore = Number.isFinite(scoreValue) ? parseFloat(scoreValue.toFixed(2)) : undefined
 
                     // Format: "Score: X [Y]" where X is the score and Y is the threshold
                     const displayValue = thresholdValue !== undefined && thresholdValue !== null
-                        ? `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'} [${thresholdValue}]`
-                        : `Score: ${Number.isFinite(scoreValue) ? scoreValue : 'N/A'}`
+                        ? `Score: ${trimmedScore !== undefined ? trimmedScore : 'N/A'} [${thresholdValue}]`
+                        : `Score: ${trimmedScore !== undefined ? trimmedScore : 'N/A'}`
 
                     formInputs.push({
                         id: `${candidateId}.${attrKey}.${algorithmKey}.score`,
