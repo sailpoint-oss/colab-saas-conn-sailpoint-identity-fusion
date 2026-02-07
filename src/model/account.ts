@@ -7,18 +7,49 @@ import { Attributes, SimpleKeyType } from '@sailpoint/connector-sdk'
 import { FusionMatch } from '../services/scoringService'
 import { attrConcat, attrSplit } from '../services/attributeService/helpers'
 
+/**
+ * Container for all attribute layers associated with a fusion account.
+ * Tracks current and previous attribute values, identity attributes,
+ * and per-source account attribute arrays for merge operations.
+ */
 type AttributeBag = {
+    /** Attributes from the previous aggregation run (used for change detection) */
     previous: Attributes
+    /** Current computed attributes (result of mapping + generation) */
     current: Attributes
+    /** Attributes from the correlated ISC identity */
     identity: Attributes
+    /** Flat list of attribute objects from all managed source accounts */
     accounts: Attributes[]
+    /** Attribute objects grouped by source name (supports multi-account-per-source scenarios) */
     sources: Map<string, Attributes[]>
 }
 
+/**
+ * Core domain model representing a fusion account in the Identity Fusion connector.
+ *
+ * A FusionAccount aggregates data from multiple sources (identity, managed accounts,
+ * review decisions) into a single unified representation. It is created through factory
+ * methods and enriched through a layered approach:
+ *
+ * 1. Factory method creates the base account (fromFusionAccount, fromIdentity, etc.)
+ * 2. Identity layer adds correlated identity data
+ * 3. Managed account layer processes source accounts from the work queue
+ * 4. Fusion decision layer applies reviewer decisions
+ *
+ * The class uses a private constructor with static factory methods to enforce
+ * proper initialization and ensure the static config is set before use.
+ */
 // TODO: Limit the size of the history array
 export class FusionAccount {
     private static config?: FusionConfig
 
+    /**
+     * Sets the shared configuration for all FusionAccount instances.
+     * Must be called once before any factory method is used.
+     *
+     * @param config - The fusion configuration
+     */
     public static configure(config: FusionConfig): void {
         FusionAccount.config = config
     }
@@ -44,6 +75,7 @@ export class FusionAccount {
     private _uncorrelated = false
     private _disabled = false
     private _needsRefresh = false
+    private _needsReset = false
     private _isMatch = false
 
     // Collections
@@ -62,6 +94,7 @@ export class FusionAccount {
 
     // Attribute management
     // Note: previous is initialized lazily only when needed to save memory for new accounts
+    private _sourceAttributeMapCache?: Map<string, { [key: string]: any }>
     private _attributeBag: AttributeBag = {
         previous: {},
         current: {},
@@ -163,6 +196,14 @@ export class FusionAccount {
         }
     }
 
+    /**
+     * Creates a FusionAccount from an existing fusion source account (ISC Account object).
+     * Used during aggregation to reconstruct fusion accounts from the previous run.
+     * Restores all persisted state including attributes, collections, history, and origin source.
+     *
+     * @param account - The ISC Account object from the fusion source
+     * @returns A fully initialized FusionAccount with restored state
+     */
     public static fromFusionAccount(account: Account): FusionAccount {
         const fusionAccount = new FusionAccount()
         const sourceSet = new Set<string>()
@@ -197,6 +238,14 @@ export class FusionAccount {
         return fusionAccount
     }
 
+    /**
+     * Creates a FusionAccount from an ISC identity (authoritative mode).
+     * The identity becomes the baseline for the fusion account, with its
+     * attributes and correlated accounts forming the initial state.
+     *
+     * @param identity - The ISC identity document
+     * @returns A new FusionAccount with baseline status and identity attributes
+     */
     public static fromIdentity(identity: IdentityDocument): FusionAccount {
         const fusionAccount = new FusionAccount()
         fusionAccount.initializeBasicProperties({
@@ -215,9 +264,18 @@ export class FusionAccount {
         return fusionAccount
     }
 
+    /**
+     * Creates a FusionAccount from an uncorrelated managed source account.
+     * Used when a source account doesn't match any existing fusion identity
+     * and needs to enter the deduplication workflow.
+     *
+     * @param account - The uncorrelated ISC Account from a managed source
+     * @returns A new FusionAccount with uncorrelated status
+     */
     public static fromManagedAccount(account: Account): FusionAccount {
         const fusionAccount = new FusionAccount()
-        const sourceSet = new Set(attrSplit(account.attributes?.sources ?? ''))
+        const sourcesAttr = account.attributes?.sources
+        const sourceSet = sourcesAttr ? new Set(attrSplit(String(sourcesAttr))) : new Set<string>()
 
         fusionAccount.initializeBasicProperties({
             type: 'managed',
@@ -237,6 +295,14 @@ export class FusionAccount {
         return fusionAccount
     }
 
+    /**
+     * Creates a FusionAccount from a reviewer's fusion decision.
+     * Used when processing form responses where a reviewer has decided
+     * whether an account should create a new identity or merge with an existing one.
+     *
+     * @param decision - The fusion decision from the review form
+     * @returns A new FusionAccount seeded from the decision's account data
+     */
     public static fromFusionDecision(decision: FusionDecision): FusionAccount {
         const fusionAccount = new FusionAccount()
         const { account } = decision
@@ -258,14 +324,17 @@ export class FusionAccount {
     // Accessors - Core Properties
     // ============================================================================
 
+    /** The origin type of this fusion account (fusion, identity, managed, or decision). */
     public get type(): 'fusion' | 'identity' | 'managed' | 'decision' {
         return this._type
     }
 
+    /** The correlated ISC identity ID, if known. */
     public get identityId(): string | undefined {
         return this._identityId
     }
 
+    /** The native identity (unique key) for this fusion account. Asserts non-null. */
     public get nativeIdentity(): string {
         return this._nativeIdentity!
     }
@@ -284,6 +353,7 @@ export class FusionAccount {
         return this._managedAccountId
     }
 
+    /** The SDK simple key used for account output. Asserts non-null. */
     public get key(): SimpleKeyType {
         return this._key!
     }
@@ -292,22 +362,27 @@ export class FusionAccount {
     // Accessors - Account Information
     // ============================================================================
 
+    /** Email address from the correlated identity. */
     public get email(): string | undefined {
         return this._email
     }
 
+    /** Account name (typically the identity display name). */
     public get name(): string | undefined {
         return this._name
     }
 
+    /** Display name for UI rendering. */
     public get displayName(): string | undefined {
         return this._displayName
     }
 
+    /** The fusion source name this account belongs to. */
     public get sourceName(): string {
         return this._sourceName
     }
 
+    /** The original source that created this fusion account (e.g. "Identities" or a managed source name). */
     public get originSource(): string | undefined {
         return this._originSource
     }
@@ -316,18 +391,27 @@ export class FusionAccount {
     // Accessors - State Flags
     // ============================================================================
 
+    /** Whether this account has uncorrelated (unmatched) source accounts. */
     public get uncorrelated(): boolean {
         return this._uncorrelated
     }
 
+    /** Whether this fusion account is disabled. */
     public get disabled(): boolean {
         return this._disabled
     }
 
+    /** Whether this account's attributes need to be refreshed (source data changed). */
     public get needsRefresh(): boolean {
         return this._needsRefresh
     }
 
+    /** Whether this account's generated attributes need a full reset. */
+    public get needsReset(): boolean {
+        return this._needsReset
+    }
+
+    /** Whether this account matched any existing fusion identity during scoring. */
     public get isMatch(): boolean {
         return this._isMatch
     }
@@ -336,34 +420,42 @@ export class FusionAccount {
     // Accessors - Collections (return arrays for immutability)
     // ============================================================================
 
+    /** IDs of correlated managed source accounts (immutable copy). */
     public get accountIds(): string[] {
         return Array.from(this._accountIds)
     }
 
+    /** IDs of source accounts that are known but not yet correlated (immutable copy). */
     public get missingAccountIds(): string[] {
         return Array.from(this._missingAccountIds)
     }
 
+    /** Current status entitlements (e.g. "uncorrelated", "baseline", "orphan") (immutable copy). */
     public get statuses(): string[] {
         return Array.from(this._statuses)
     }
 
+    /** Current action entitlements (e.g. "report", "fusion", "correlated") (immutable copy). */
     public get actions(): string[] {
         return Array.from(this._actions)
     }
 
+    /** Review URLs for active fusion review forms (immutable copy). */
     public get reviews(): string[] {
         return Array.from(this._reviews)
     }
 
+    /** Source names contributing to this fusion account (immutable copy). */
     public get sources(): string[] {
         return Array.from(this._sources)
     }
 
+    /** Fusion match results from deduplication scoring (immutable copy). */
     public get fusionMatches(): FusionMatch[] {
         return [...this._fusionMatches]
     }
 
+    /** Dated audit trail of operations performed on this account (immutable copy). */
     public get history(): string[] {
         return [...this._history]
     }
@@ -388,14 +480,21 @@ export class FusionAccount {
         return this._attributeBag.previous
     }
 
+    /**
+     * Returns a Map of source name -> first attribute object for each source.
+     * Result is cached and invalidated when sources change (via setManagedAccount).
+     */
     public get sourceAttributeMap(): Map<string, { [key: string]: any }> {
-        const map = new Map<string, { [key: string]: any }>()
-        for (const [source, attrsArray] of this._attributeBag.sources.entries()) {
-            if (attrsArray.length > 0) {
-                map.set(source, attrsArray[0])
+        if (!this._sourceAttributeMapCache) {
+            const map = new Map<string, { [key: string]: any }>()
+            for (const [source, attrsArray] of this._attributeBag.sources.entries()) {
+                if (attrsArray.length > 0) {
+                    map.set(source, attrsArray[0])
+                }
             }
+            this._sourceAttributeMapCache = map
         }
-        return map
+        return this._sourceAttributeMapCache
     }
 
     // ============================================================================
@@ -418,6 +517,7 @@ export class FusionAccount {
     // Setters - Core Properties
     // ============================================================================
 
+    /** Sets the SDK key and updates the native identity to match. */
     public setKey(key: SimpleKeyType): void {
         this._key = key
         this._nativeIdentity = key.simple.id
@@ -447,14 +547,17 @@ export class FusionAccount {
     // Setters - State Flags
     // ============================================================================
 
+    /** Enables this fusion account (clears the disabled flag). */
     public enable(): void {
         this._disabled = false
     }
 
+    /** Disables this fusion account. */
     public disable(): void {
         this._disabled = true
     }
 
+    /** Replaces the current attribute bag with freshly mapped attributes. */
     public setMappedAttributes(attributes: Attributes): void {
         this._attributeBag.current = attributes
     }
@@ -463,18 +566,22 @@ export class FusionAccount {
     // Mutation Methods - Account IDs
     // ============================================================================
 
+    /** Adds a managed account ID to the correlated set, with optional history message. */
     public addAccountId(id: string, message?: string): void {
         this.addToSet(this._accountIds, id, message)
     }
 
+    /** Removes a managed account ID from the correlated set, with optional history message. */
     public removeAccountId(id: string, message?: string): void {
         this.removeFromSet(this._accountIds, id, message)
     }
 
+    /** Adds an account ID to the missing (uncorrelated) set. */
     public addMissingAccountId(id: string, message?: string): void {
         this.addToSet(this._missingAccountIds, id, message)
     }
 
+    /** Removes an account ID from the missing set (i.e. it has been correlated). */
     public removeMissingAccountId(id: string, message?: string): void {
         this.removeFromSet(this._missingAccountIds, id, message)
     }
@@ -483,14 +590,17 @@ export class FusionAccount {
     // Mutation Methods - Statuses
     // ============================================================================
 
+    /** Adds a status entitlement to this fusion account. */
     public addStatus(status: string, message?: string): void {
         this.addToSet(this._statuses, status, message)
     }
 
+    /** Removes a status entitlement from this fusion account. */
     public removeStatus(status: string, message?: string): void {
         this.removeFromSet(this._statuses, status, message)
     }
 
+    /** Checks whether this fusion account has a given status. */
     public hasStatus(status: string): boolean {
         return this._statuses.has(status)
     }
@@ -499,22 +609,32 @@ export class FusionAccount {
     // Mutation Methods - Actions
     // ============================================================================
 
+    /** Adds an action entitlement to this fusion account. */
     public addAction(action: string, message?: string): void {
         this.addToSet(this._actions, action, message)
     }
 
+    /** Removes an action entitlement from this fusion account. */
     public removeAction(action: string, message?: string): void {
         this.removeFromSet(this._actions, action, message)
     }
 
+    /** Marks this fusion account's identity as a reviewer for the given source. */
     public setSourceReviewer(sourceId: string): void {
         this._actions.add(`reviewer:${sourceId}`)
         this.addStatus('reviewer')
     }
 
+    /** Returns the source IDs this account's identity is configured to review. */
     public listReviewerSources(): string[] {
-        const reviewerActions = Array.from(this._actions).filter((action) => action.startsWith('reviewer:'))
-        const sourceIds = reviewerActions.map((action) => action.split(':')[1])
+        const prefix = 'reviewer:'
+        const sourceIds: string[] = []
+        for (const action of this._actions) {
+            if (action.startsWith(prefix)) {
+                // Extract sourceId after 'reviewer:' without split() overhead
+                sourceIds.push(action.slice(prefix.length))
+            }
+        }
         return sourceIds
     }
 
@@ -522,19 +642,23 @@ export class FusionAccount {
     // Mutation Methods - Reviews
     // ============================================================================
 
+    /** Adds a review URL to this fusion account. */
     public addReview(review: string, message?: string): void {
         this.addToSet(this._reviews, review, message)
     }
 
+    /** Removes a review URL from this fusion account. */
     public removeReview(review: string, message?: string): void {
         this.removeFromSet(this._reviews, review, message)
     }
 
+    /** Adds a fusion review URL and sets the "activeReviews" status. */
     public addFusionReview(reviewUrl: string): void {
         this._reviews.add(reviewUrl)
         this._statuses.add('activeReviews')
     }
 
+    /** Removes a fusion review URL. Clears "activeReviews" status if no reviews remain. */
     public removeFusionReview(reviewUrl: string): void {
         this._reviews.delete(reviewUrl)
         if (this._reviews.size === 0) {
@@ -568,18 +692,21 @@ export class FusionAccount {
         }
     }
 
+    /** Queues a review URL for deferred addition (resolved during getISCAccount). */
     public addPendingReviewUrl(reviewUrl: string): void {
         if (reviewUrl) {
             this._pendingReviewUrls.add(reviewUrl)
         }
     }
 
+    /** Adds a promise that will resolve to a review URL once the form is created. */
     public addReviewPromise(promise: Promise<string | undefined>): void {
         if (promise) {
             this._reviewPromises.push(promise)
         }
     }
 
+    /** Converts all pending review URLs into active fusion reviews. */
     public resolvePendingReviewUrls(): void {
         if (this._pendingReviewUrls.size === 0) return
 
@@ -630,10 +757,12 @@ export class FusionAccount {
     // Mutation Methods - Sources
     // ============================================================================
 
+    /** Adds a source name to this fusion account's source set. */
     public addSource(source: string, message?: string): void {
         this.addToSet(this._sources, source, message)
     }
 
+    /** Removes a source name from this fusion account's source set. */
     public removeSource(source: string, message?: string): void {
         this.removeFromSet(this._sources, source, message)
     }
@@ -642,6 +771,7 @@ export class FusionAccount {
     // Mutation Methods - Fusion Matches
     // ============================================================================
 
+    /** Records a deduplication match result and sets the isMatch flag. */
     public addFusionMatch(fusionMatch: FusionMatch): void {
         this._fusionMatches.push(fusionMatch)
         this._isMatch = true
@@ -698,6 +828,12 @@ export class FusionAccount {
     // Layer Methods - Add data layers (must be called in order)
     // ============================================================================
 
+    /**
+     * Adds the identity layer by populating identity-sourced fields (email, name, display name)
+     * and marking correlated accounts found in the identity's account list.
+     *
+     * @param identity - The correlated ISC identity document
+     */
     public addIdentityLayer(identity: IdentityDocument): void {
         this._email = identity.attributes?.email as string
         this._name = identity.name ?? ''
@@ -735,7 +871,7 @@ export class FusionAccount {
      */
     public addManagedAccountLayer(accountsById: Map<string, Account>): void {
         const processedAccountIds = this.processAccountsForLayer(accountsById)
-        
+
         // Remove processed accounts from the working queue so they won't be processed again
         // This is critical: managedAccountsById acts as a queue that gets depleted as
         // fusion/identity processing happens, leaving only uncorrelated accounts for
@@ -853,6 +989,12 @@ export class FusionAccount {
         this._previousAccountIds = new Set([...this._accountIds, ...this._missingAccountIds])
     }
 
+    /**
+     * Applies a reviewer's fusion decision to this account, setting it as either
+     * "manual" (new identity) or "authorized" (merge into existing).
+     *
+     * @param decision - The fusion decision from the review form
+     */
     public addFusionDecisionLayer(decision: FusionDecision): void {
         this.setUncorrelatedAccount(decision.account.id!)
 
@@ -867,6 +1009,13 @@ export class FusionAccount {
     // Internal Layer Helpers
     // ============================================================================
 
+    /**
+     * Processes a single managed source account into this fusion account.
+     * Updates correlation status, triggers refresh if the account is new or recently modified,
+     * and adds its attributes to the source attribute layers.
+     *
+     * @param account - The managed account to absorb
+     */
     private setManagedAccount(account: Account): void {
         const accountId = account.id!
         const isIdentity = !account.uncorrelated
@@ -899,10 +1048,18 @@ export class FusionAccount {
             this._sources.add(account.sourceName)
             this._attributeBag.sources.set(account.sourceName, existingSourceAccounts)
             this._attributeBag.accounts.push(account.attributes ?? {})
+            // Invalidate cached sourceAttributeMap since sources changed
+            this._sourceAttributeMapCache = undefined
         }
     }
-    private setNeedsRefresh(refresh: boolean) {
+    /** Sets whether this account's attributes need refreshing. */
+    public setNeedsRefresh(refresh: boolean) {
         this._needsRefresh = refresh
+    }
+
+    /** Sets whether this account's generated attributes need a full reset. */
+    public setNeedsReset(reset: boolean) {
+        this._needsReset = reset
     }
 
     // ============================================================================
@@ -918,10 +1075,12 @@ export class FusionAccount {
         this._actions.delete('correlated')
     }
 
+    /** Sets the account as uncorrelated (no identity match). */
     private setUncorrelated(): void {
         this.setUncorrelatedStatus()
     }
 
+    /** Sets a specific account ID as uncorrelated and adds it to both account ID sets. */
     private setUncorrelatedAccount(accountId?: string): void {
         if (!accountId) return
 
@@ -930,11 +1089,13 @@ export class FusionAccount {
         this.setUncorrelatedStatus()
     }
 
+    /** Marks this account with "baseline" status (created from an identity in authoritative mode). */
     private setBaseline(): void {
         this._statuses.add('baseline')
         this.addHistory(`Set ${this._name} [${this._sourceName}] as baseline`)
     }
 
+    /** Marks this account as "unmatched" (no deduplication match found, pending review). */
     public setUnmatched(): void {
         this._statuses.add('unmatched')
         this.addHistory(`Set ${this._name} [${this._sourceName}] as unmatched`)
@@ -954,12 +1115,14 @@ export class FusionAccount {
         }
     }
 
+    /** Marks this account as "manual" (reviewer decided to create a new identity). */
     private setManual(decision: FusionDecision): void {
         this._statuses.add('manual')
         const message = this.createDecisionHistoryMessage(decision, 'manual')
         this.addHistory(message)
     }
 
+    /** Marks this account as "authorized" (reviewer approved merging into an existing identity). */
     private setAuthorized(decision: FusionDecision): void {
         this._statuses.add('authorized')
         const message = this.createDecisionHistoryMessage(decision, 'authorized')
@@ -988,6 +1151,13 @@ export class FusionAccount {
         }
     }
 
+    /**
+     * Marks a managed account as correlated by adding it to the account IDs set
+     * and removing it from the missing set. Optionally tracks a correlation promise.
+     *
+     * @param accountId - The account ID that has been correlated
+     * @param promise - Optional promise from the correlation API call
+     */
     public setCorrelatedAccount(accountId: string, promise?: Promise<unknown>): void {
         this.addAccountId(accountId)
         this.removeMissingAccountId(accountId)
@@ -996,7 +1166,8 @@ export class FusionAccount {
         }
     }
 
-    public addCorrelationPromise(accountId: string, promise: Promise<unknown>): void {
+    /** Tracks a correlation promise for deferred resolution during getISCAccount. */
+    public addCorrelationPromise(_accountId: string, promise: Promise<unknown>): void {
         if (!promise) return
 
         // Track the promise - it will be resolved in getISCAccount via resolvePendingOperations
@@ -1008,10 +1179,12 @@ export class FusionAccount {
     // Utility Methods
     // ============================================================================
 
+    /** Whether this account has lost all its managed source accounts. */
     public isOrphan(): boolean {
         return this._statuses.has('orphan')
     }
 
+    /** Adds a fusion decision action entitlement with a history entry. */
     public addFusionDecision(decision: string): void {
         this.addAction(decision, `Fusion decision added: ${decision}`)
     }
@@ -1048,10 +1221,12 @@ export class FusionAccount {
         }
     }
 
+    /** Placeholder for future attribute generation logic. */
     public generateAttributes(): void {
         // Placeholder for future implementation
     }
 
+    /** Placeholder for future account editing logic. */
     public async editAccount(): Promise<void> {
         // TODO: Edit the account
     }

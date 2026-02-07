@@ -4,7 +4,7 @@ import { ServiceRegistry } from '../../services/serviceRegistry'
 import { generateReport } from '../helpers/generateReport'
 
 /**
- * Report action handler – generates fusion report
+ * Report action handler - generates and sends a fusion report.
  * @param serviceRegistry - Request-scoped registry (required for concurrent updates to avoid global state)
  */
 export const reportAction = async (

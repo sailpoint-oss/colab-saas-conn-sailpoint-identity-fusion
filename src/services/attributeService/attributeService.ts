@@ -26,8 +26,9 @@ import { StateWrapper } from './stateWrapper'
 export class AttributeService {
     private _attributeMappingConfig?: Map<string, AttributeMappingConfig>
     private attributeDefinitionConfig: AttributeDefinition[] = []
+    // O(1) lookup index for attribute definitions by name (built in constructor)
+    private attributeDefinitionByName: Map<string, AttributeDefinition> = new Map()
     private stateWrapper?: StateWrapper
-    private forceAttributeRefresh: boolean
     private readonly skipAccountsWithMissingId: boolean
     private readonly attributeMaps?: AttributeMap[]
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
@@ -38,6 +39,14 @@ export class AttributeService {
     // Constructor
     // ------------------------------------------------------------------------
 
+    /**
+     * @param config - Fusion configuration containing attribute maps, definitions, and merge strategy
+     * @param schemas - Schema service for resolving attribute names and types
+     * @param sourceService - Source service for persisting state to the fusion source config
+     * @param log - Logger instance
+     * @param locks - Lock service for thread-safe unique attribute generation
+     * @param commandType - The current SDK command type (affects key generation behavior)
+     */
     constructor(
         config: FusionConfig,
         private schemas: SchemaService,
@@ -50,7 +59,6 @@ export class AttributeService {
         this.attributeMerge = config.attributeMerge
         this.sourceConfigs = config.sources
         this.maxAttempts = config.maxAttempts
-        this.forceAttributeRefresh = config.forceAttributeRefresh
         this.skipAccountsWithMissingId = config.skipAccountsWithMissingId
         // Clone attribute definitions into an internal array so we never touch
         // config.attributeDefinitions after construction, and always have a values Set.
@@ -59,6 +67,11 @@ export class AttributeService {
                 ...x,
                 values: new Set<string>(),
             })) ?? []
+
+        // Build O(1) lookup index for getAttributeDefinition
+        this.attributeDefinitionByName = new Map(
+            this.attributeDefinitionConfig.map((d) => [d.name, d])
+        )
 
         this.setStateWrapper(config.fusionState)
     }
@@ -119,10 +132,6 @@ export class AttributeService {
         this.stateWrapper = new StateWrapper(state, this.locks)
     }
 
-    public enableAttributeRefresh(): void {
-        this.forceAttributeRefresh = true
-    }
-
     /**
      * Initialize all counter-based attributes from configuration
      * Should be called once after setStateWrapper to ensure all counters are initialized
@@ -174,10 +183,11 @@ export class AttributeService {
     // ------------------------------------------------------------------------
 
     /**
-     * Map attributes from source accounts to fusion account
-     * Processes _sourceAttributeMap in established source order if refresh is needed,
-     * using _previousAttributes as default.
-     * Uses schema attributes merged with attributeMaps to determine processing configuration.
+     * Maps attributes from source accounts to the fusion account.
+     * Processes source attributes in the established source order if refresh is needed,
+     * using the current attribute bag as a default.
+     *
+     * @param fusionAccount - The fusion account to map attributes for
      */
     public mapAttributes(fusionAccount: FusionAccount): void {
         const { attributeBag, needsRefresh } = fusionAccount
@@ -189,15 +199,19 @@ export class AttributeService {
             return
         }
 
-        const sourceAttributeMap = new Map(attributeBag.sources.entries())
+        // Use attributeBag.sources directly instead of creating a copy.
+        // Ensure all fusionAccount sources have an entry (default to [] if missing).
+        const sourceAttributeMap = attributeBag.sources
         const sourceOrder = this.sourceConfigs.map((sc) => sc.name)
 
         for (const source of fusionAccount.sources) {
-            sourceAttributeMap.set(source, attributeBag.sources.get(source) ?? [])
+            if (!sourceAttributeMap.has(source)) {
+                sourceAttributeMap.set(source, [])
+            }
         }
 
         // If refresh is needed, process source attributes in established order
-        if ((needsRefresh || this.forceAttributeRefresh) && sourceAttributeMap.size > 0) {
+        if ((needsRefresh) && sourceAttributeMap.size > 0) {
             const schemaAttributes = this.schemas.listSchemaAttributeNames()
             // Process each schema attribute
             for (const attribute of schemaAttributes) {
@@ -237,7 +251,12 @@ export class AttributeService {
     // ------------------------------------------------------------------------
 
     /**
-     * Refresh all attributes for a fusion account
+     * Refreshes all attribute definitions for a fusion account.
+     * When forced, unregisters existing unique values and clears all definition-generated
+     * attributes before regenerating.
+     *
+     * @param fusionAccount - The fusion account to refresh attributes for
+     * @param force - If true, unregister unique values and clear all generated attributes first
      */
     public async refreshAttributes(fusionAccount: FusionAccount, force: boolean = false): Promise<void> {
         const allDefinitions = this.attributeDefinitionConfig
@@ -251,10 +270,13 @@ export class AttributeService {
     }
 
     /**
-     * Refresh non-unique attributes for a fusion account
+     * Refreshes only non-unique attribute definitions (normal type).
+     * Skips processing if the account doesn't need a refresh.
+     *
+     * @param fusionAccount - The fusion account to refresh non-unique attributes for
      */
     public async refreshNonUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
+        if (!fusionAccount.needsRefresh) return
         this.log.debug(
             `Refreshing non-unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`
         )
@@ -266,12 +288,14 @@ export class AttributeService {
     }
 
     /**
-     * Refresh unique attributes for a fusion account
-     * Unique attributes (including counter) should only be generated for new accounts.
-     * For existing accounts, shouldSkipAttributeGeneration will skip generation if the attribute already exists.
+     * Refreshes only unique attribute definitions (unique, uuid, counter types).
+     * Unique attributes are only generated for new accounts; existing values are preserved
+     * unless needsReset is set.
+     *
+     * @param fusionAccount - The fusion account to refresh unique attributes for
      */
     public async refreshUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
-        if (!fusionAccount.needsRefresh && !this.forceAttributeRefresh) return
+        if (!fusionAccount.needsRefresh && !fusionAccount.needsReset) return
         this.log.debug(`Refreshing unique attributes for account: ${fusionAccount.name} (${fusionAccount.sourceName})`)
 
         const allDefinitions = this.attributeDefinitionConfig
@@ -323,15 +347,20 @@ export class AttributeService {
     }
 
     /**
-     * Register unique attribute values for a fusion account
+     * Registers all unique attribute values for a fusion account, preventing them
+     * from being assigned to other accounts.
+     *
+     * @param fusionAccount - The fusion account whose unique values to register
      */
     public async registerUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
         await this.processUniqueAttributes(fusionAccount, 'register')
     }
 
     /**
-     * Unregister unique attribute values for a fusion account
-     * (used when a fusion account is being removed or its unique values should no longer be reserved)
+     * Unregisters all unique attribute values for a fusion account, releasing them
+     * for reassignment. Used when an account is being removed or re-enabled.
+     *
+     * @param fusionAccount - The fusion account whose unique values to release
      */
     public async unregisterUniqueAttributes(fusionAccount: FusionAccount): Promise<void> {
         await this.processUniqueAttributes(fusionAccount, 'unregister')
@@ -399,7 +428,7 @@ export class AttributeService {
     }
 
     private getAttributeDefinition(name: string): AttributeDefinition | undefined {
-        return this.attributeDefinitionConfig.find((d) => d.name === name)
+        return this.attributeDefinitionByName.get(name)
     }
 
     private getStateWrapper(): StateWrapper {
@@ -424,6 +453,12 @@ export class AttributeService {
         context.accounts = fusionAccount.attributeBag.accounts
         context.previous = fusionAccount.attributeBag.previous
         context.sources = fusionAccount.attributeBag.sources
+
+        // Ensure originSource is always available in Velocity context even for new accounts
+        // (syncCollectionAttributesToBag runs after attribute definitions are evaluated)
+        if (fusionAccount.originSource) {
+            context.originSource = fusionAccount.originSource
+        }
 
         return context
     }
@@ -463,9 +498,9 @@ export class AttributeService {
      */
     private async generateNormalAttribute(
         definition: AttributeDefinition,
-        fusionAccount: FusionAccount
+        fusionAccount: FusionAccount,
+        context: { [key: string]: any }
     ): Promise<string | undefined> {
-        const context = this.buildVelocityContext(fusionAccount)
         return this.evaluateTemplate(definition, context, fusionAccount.name)
     }
 
@@ -474,10 +509,10 @@ export class AttributeService {
      */
     private async generateCounterAttribute(
         definition: AttributeDefinition,
-        fusionAccount: FusionAccount
+        fusionAccount: FusionAccount,
+        context: { [key: string]: any }
     ): Promise<string | undefined> {
         const stateWrapper = this.getStateWrapper()
-        const context = this.buildVelocityContext(fusionAccount)
         const counterFn = stateWrapper.getCounter(definition.name)
         const digits = definition.digits ?? 1
         const counterValue = await counterFn()
@@ -491,11 +526,11 @@ export class AttributeService {
      */
     private async generateUniqueAttribute(
         definition: AttributeDefinition,
-        fusionAccount: FusionAccount
+        fusionAccount: FusionAccount,
+        context: { [key: string]: any }
     ): Promise<string | undefined> {
-        const context = this.buildVelocityContext(fusionAccount)
         const lockKey = `${definition.type}:${definition.name}`
-        
+
         return await this.locks.withLock(lockKey, async () => {
             const registeredValues = definition.values!
             const counter = StateWrapper.getCounter()
@@ -536,7 +571,7 @@ export class AttributeService {
      */
     private async generateUUIDAttribute(definition: AttributeDefinition): Promise<string | undefined> {
         const lockKey = `${definition.type}:${definition.name}`
-        
+
         return await this.locks.withLock(lockKey, async () => {
             const registeredValues = definition.values!
             const maxAttempts = this.maxAttempts ?? 100
@@ -565,16 +600,25 @@ export class AttributeService {
     // ------------------------------------------------------------------------
 
     /**
-     * Apply attribute definitions to a fusion account
-     * Generates attribute values based on their type and configuration
+     * Apply attribute definitions to a fusion account.
+     *
+     * Performance Optimization:
+     * Builds the Velocity context once per account and reuses it across all attribute
+     * definitions. When an attribute value is generated, it is also set on the shared
+     * context so subsequent definitions can reference it (preserving the original
+     * behavior where each generator saw the latest attributeBag.current).
+     * This avoids N spread-copy operations of attributeBag.current (one per definition).
      */
     private async applyAttributeDefinitions(
         fusionAccount: FusionAccount,
         attributeDefinitions: AttributeDefinition[]
     ): Promise<void> {
+        // Build context once per account - reused across all definitions
+        const context = this.buildVelocityContext(fusionAccount)
+
         for (const definition of attributeDefinitions) {
             try {
-                await this.generateAttributeForAccount(definition, fusionAccount)
+                await this.generateAttributeForAccount(definition, fusionAccount, context)
             } catch (error) {
                 this.log.error(
                     `Error generating attribute ${definition.name} for account: ${fusionAccount.name} (${fusionAccount.sourceName})`,
@@ -593,12 +637,22 @@ export class AttributeService {
      */
     private async generateAttributeForAccount(
         definition: AttributeDefinition,
-        fusionAccount: FusionAccount
+        fusionAccount: FusionAccount,
+        context: { [key: string]: any }
     ): Promise<void> {
         const { name, refresh } = definition
+        const needsRefresh = fusionAccount.needsRefresh || fusionAccount.needsReset || refresh
+        const needsReset = fusionAccount.needsReset
+        const hasValue = fusionAccount.attributes[name] !== undefined
+        const isUnique = isUniqueAttribute(definition)
 
         // Skip if attribute exists and refresh is not requested
-        if (!this.forceAttributeRefresh && fusionAccount.attributes[name] !== undefined && !refresh) {
+        if (hasValue && !needsRefresh) {
+            return
+        }
+
+        // Skip if attribute is unique and exists and reset is not requested
+        if (hasValue && isUnique && !needsReset) {
             return
         }
 
@@ -608,11 +662,14 @@ export class AttributeService {
             return // Attribute was handled directly
         }
 
-        // Generate value based on type
-        const value = await this.generateValueByType(adjustedDef, fusionAccount)
+        // Generate value based on type, passing the shared context
+        const value = await this.generateValueByType(adjustedDef, fusionAccount, context)
 
         if (value !== undefined) {
             fusionAccount.attributes[name] = value
+            // Keep the shared context in sync so subsequent definitions
+            // can reference attributes generated by earlier ones
+            context[name] = value
         }
     }
 
@@ -653,17 +710,18 @@ export class AttributeService {
      */
     private async generateValueByType(
         definition: AttributeDefinition,
-        fusionAccount: FusionAccount
+        fusionAccount: FusionAccount,
+        context: { [key: string]: any }
     ): Promise<string | undefined> {
         switch (definition.type) {
             case 'counter':
-                return await this.generateCounterAttribute(definition, fusionAccount)
+                return await this.generateCounterAttribute(definition, fusionAccount, context)
             case 'unique':
-                return await this.generateUniqueAttribute(definition, fusionAccount)
+                return await this.generateUniqueAttribute(definition, fusionAccount, context)
             case 'uuid':
                 return await this.generateUUIDAttribute(definition)
             default:
-                return await this.generateNormalAttribute(definition, fusionAccount)
+                return await this.generateNormalAttribute(definition, fusionAccount, context)
         }
     }
 }

@@ -19,6 +19,7 @@ import { LogService } from '../logService'
 import { assert, softAssert } from '../../utils/assert'
 import { getDateFromISOString } from '../../utils/date'
 import { SourceInfo } from './types'
+import { promiseAllBatched } from '../fusionService/collections'
 
 // ============================================================================
 // SourceService Class
@@ -86,6 +87,11 @@ export class SourceService {
     // Constructor
     // ------------------------------------------------------------------------
 
+    /**
+     * @param config - Fusion configuration containing source definitions and aggregation settings
+     * @param log - Logger instance
+     * @param client - API client for ISC source and account operations
+     */
     constructor(
         config: FusionConfig,
         private log: LogService,
@@ -126,7 +132,7 @@ export class SourceService {
     }
 
     /**
-     * Get all managed accounts.
+     * Get all managed accounts as an array.
      * 
      * Work Queue Pattern:
      * This getter returns the current state of the work queue. As processing phases
@@ -139,6 +145,8 @@ export class SourceService {
      * - Returns live view of the depleted queue
      * - Ensures no duplicate processing
      * 
+     * Note: Creates a new array on each access. Use managedAccountCount for size checks.
+     * 
      * @returns Array of accounts currently in the work queue
      */
     public get managedAccounts(): Account[] {
@@ -147,11 +155,26 @@ export class SourceService {
     }
 
     /**
-     * Get all fusion accounts
+     * Get the number of managed accounts in the work queue without creating an array.
+     */
+    public get managedAccountCount(): number {
+        return this.managedAccountsById.size
+    }
+
+    /**
+     * Get all fusion accounts as an array.
+     * Note: Creates a new array on each access. Use fusionAccountCount for size checks.
      */
     public get fusionAccounts(): Account[] {
         assert(this.fusionAccountsByNativeIdentity, 'Fusion accounts have not been loaded')
         return Array.from(this.fusionAccountsByNativeIdentity.values())
+    }
+
+    /**
+     * Get the number of fusion accounts without creating an array.
+     */
+    public get fusionAccountCount(): number {
+        return this.fusionAccountsByNativeIdentity?.size ?? 0
     }
 
     // ------------------------------------------------------------------------
@@ -314,11 +337,11 @@ export class SourceService {
      */
     public async fetchManagedAccounts(): Promise<void> {
         this.log.debug(`Fetching managed accounts from ${this.managedSources.length} source(s)`)
-        const accounts = (
-            await Promise.all(
-                this.managedSources.map((s) => this.fetchSourceAccountsById(s.id, s.config?.accountLimit))
-            )
-        ).flat()
+        const accountBatches = await promiseAllBatched(
+            this.managedSources,
+            (s) => this.fetchSourceAccountsById(s.id, s.config?.accountLimit)
+        )
+        const accounts = accountBatches.flat()
         this.managedAccountsById = new Map(accounts.map((account) => [account.id!, account]))
         this.log.debug(`Fetched ${this.managedAccountsById.size} managed account(s)`)
     }
@@ -491,7 +514,7 @@ export class SourceService {
     /**
      * Update source configuration
      */
-    public async patchSourceConfig(id: string, requestParameters: SourcesV2025ApiUpdateSourceRequest): Promise<Source | undefined> {
+    public async patchSourceConfig(_id: string, requestParameters: SourcesV2025ApiUpdateSourceRequest): Promise<Source | undefined> {
         const { sourcesApi } = this.client
         const updateSource = async () => {
             const response = await sourcesApi.updateSource(requestParameters)

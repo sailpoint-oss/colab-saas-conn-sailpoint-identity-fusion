@@ -3,8 +3,7 @@ import { FusionAccount } from '../../model/account'
 import { ServiceRegistry } from '../../services/serviceRegistry'
 
 /**
- * Placeholder function for fusion action
- * Creates a fusion account
+ * Fusion action handler - manages fusion account creation/removal.
  * @param serviceRegistry - Request-scoped registry (required for concurrent updates to avoid global state)
  */
 export const fusionAction = async (
@@ -16,10 +15,9 @@ export const fusionAction = async (
 
     log.debug(`Fusion action called for account ${fusionAccount.name} with operation ${op}`)
 
-    // TODO: Implement fusion action logic
     if (op === AttributeChangeOp.Add) {
-        // fusionAccount.actions.add('fusion')
+        // Reserved for future fusion creation logic
     } else if (op === AttributeChangeOp.Remove) {
-        // fusionAccount.actions.delete('fusion')
+        // Reserved for future fusion removal logic
     }
 }

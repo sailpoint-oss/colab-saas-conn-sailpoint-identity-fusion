@@ -5,28 +5,31 @@ import { generateReport } from './helpers/generateReport'
 
 /**
  * Account list operation - Main entry point for identity fusion processing.
- * 
+ *
  * Processing Flow (Work Queue Pattern):
- * 1. SETUP: Load all data (fusion accounts, identities, managed accounts)
- * 2. DEPLETION PHASE: Process accounts and remove them from work queue
- *    a. fetchFormData: Remove accounts with pending form decisions
- *    b. processFusionAccounts: Remove accounts belonging to existing fusion accounts
- *    c. processIdentities: Remove accounts belonging to identities
- *    d. processManagedAccounts: Process remaining uncorrelated accounts
- * 3. OUTPUT: Send final fusion account list to platform
- * 4. CLEANUP: Clear caches and save state
- * 
+ * 1. SETUP: Load sources, schema, and initialize attribute counters
+ * 2. FETCH: Load fusion accounts, identities, managed accounts in parallel
+ * 3. DEPLETION: Process and remove accounts from the work queue
+ *    a. fetchFormData - Remove accounts with pending form decisions
+ *    b. processFusionAccounts - Remove accounts belonging to existing fusion accounts
+ *    c. processIdentities - Remove accounts belonging to identities
+ *    d. processFusionIdentityDecisions - Process fusion identity decisions
+ *    e. processManagedAccounts - Process remaining uncorrelated accounts (deduplication)
+ * 4. REPORT: Generate fusion report (conditional)
+ * 5. OUTPUT: Send final fusion account list to platform
+ * 6. CLEANUP: Clear caches and save state
+ *
  * Memory Optimizations:
  * - No map copies/snapshots during processing (direct reference only)
- * - Identity cache cleared after fusion/identity processing (line 60)
- * - Account caches cleared after output sent (lines 81-83)
+ * - Identity cache cleared after fusion/identity processing
+ * - Account caches cleared after output is sent
  * - Report arrays cleared after report generation (in generateReport)
  * - Conditional previous attributes (only stored for existing fusion accounts)
- * 
+ *
  * Work Queue (sources.managedAccountsById):
  * - Starts with all managed accounts from all sources
  * - Gets depleted as accounts are matched and processed
- * - By phase 4 (processManagedAccounts), only uncorrelated accounts remain
+ * - By step 3e (processManagedAccounts), only uncorrelated accounts remain
  * - Physical deletion from map ensures no duplicate processing
  */
 export const accountList = async (
@@ -43,7 +46,7 @@ export const accountList = async (
 
         await sources.fetchAllSources()
         log.debug(`Loaded ${sources.managedSources.length} managed source(s)`)
-        
+
         if (fusion.isReset()) {
             log.info('Reset flag detected, disabling reset and exiting')
             await forms.deleteExistingForms()
@@ -61,7 +64,6 @@ export const accountList = async (
         await attributes.initializeCounters()
         log.debug('Attribute counters initialized')
 
-        // Fetch all data in parallel for efficiency
         log.info('PHASE 2: Fetching data in parallel')
         log.debug('Fetching fusion accounts, identities, managed accounts, and sender')
         const fetchPromises = [
@@ -72,7 +74,8 @@ export const accountList = async (
         ]
 
         await Promise.all(fetchPromises)
-        log.info(`Loaded ${sources.fusionAccounts.length} fusion account(s), ${identities.identities.length} identit(ies), ${sources.managedAccountsById.size} managed account(s)`)
+        // Use count getters to avoid creating temporary arrays just for .length
+        log.info(`Loaded ${sources.fusionAccountCount} fusion account(s), ${identities.identityCount} identities, ${sources.managedAccountsById.size} managed account(s)`)
         const fusionOwner = sources.fusionSourceOwner
         if (fusion.fusionReportOnAggregation) {
             const fusionOwnerIdentity = identities.getIdentityById(fusionOwner.id)
@@ -82,27 +85,23 @@ export const accountList = async (
             }
         }
 
-        // WORK QUEUE DEPLETION PHASE BEGINS
         log.info('PHASE 3: Work queue depletion - processing accounts')
         await forms.fetchFormData()
         log.debug('Form data loaded')
 
-        // Phase 2-3: Remove accounts belonging to fusion accounts and identities
         log.debug('Step 3.1: Processing existing fusion accounts')
         await fusion.processFusionAccounts()
-        
+
         log.debug('Step 3.2: Processing identities')
         await fusion.processIdentities()
 
-        // Memory optimization: Clear identity cache after processing
-        // Identities are no longer needed and can be garbage collected
+        // Memory optimization: identities are no longer needed past this point
         identities.clear()
         log.debug('Identities cache cleared from memory')
 
-        // Phase 4: Process remaining uncorrelated accounts (deduplication)
         log.debug('Step 3.3: Processing fusion identity decisions')
         await fusion.processFusionIdentityDecisions()
-        
+
         log.debug('Step 3.4: Processing managed accounts (deduplication)')
         await fusion.processManagedAccounts()
         log.info(`Work queue processing complete - ${sources.managedAccountsById.size} unprocessed account(s) remaining`)
@@ -117,6 +116,11 @@ export const accountList = async (
             }
         }
 
+        // Memory optimization: clear analyzed account arrays regardless of report flag.
+        // generateReport() clears them internally, but if reporting is disabled they would
+        // persist for the lifetime of the operation.
+        fusion.clearAnalyzedAccounts()
+
         log.info('PHASE 5: Finalizing and sending accounts')
         const accounts = await fusion.listISCAccounts()
         assert(accounts, 'Failed to list ISC accounts')
@@ -130,9 +134,7 @@ export const accountList = async (
         await attributes.saveState()
         log.debug('Attribute state saved')
 
-        // Memory optimization: Clear account caches after all processing is complete
-        // At this point, accounts have been sent to the platform and are no longer needed
-        // This frees potentially thousands of account objects from memory
+        // Memory optimization: accounts have been sent and are no longer needed
         sources.clearManagedAccounts()
         sources.clearFusionAccounts()
         log.debug('Account caches cleared from memory')

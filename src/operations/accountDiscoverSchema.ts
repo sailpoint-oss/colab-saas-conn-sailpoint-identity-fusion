@@ -9,13 +9,13 @@ export const accountDiscoverSchema = async (
     const { log, schemas, sources } = serviceRegistry
 
     try {
-        log.info('Discovering account schema...')
+        log.info('Discovering account schema')
 
         await sources.fetchAllSources()
         const accountSchema = await schemas.buildDynamicSchema()
         res.send(accountSchema)
 
-        log.info('Account schema discovery completed')
+        log.info('✓ Account schema discovery completed')
     } catch (error) {
         log.crash('Failed to discover account schema', error)
     }

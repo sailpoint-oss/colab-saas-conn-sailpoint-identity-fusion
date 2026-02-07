@@ -14,21 +14,31 @@ export class SchemaService {
     private attributeMap: Map<string, AttributeMap> = new Map()
     private _fusionSchemaAttributeNames: string[] = []
     private _fusionSchemaAttributeMap: Map<string, SchemaAttribute> = new Map()
-    private readonly attributeMaps?: AttributeMap[]
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
     private readonly attributeDefinitions?: AttributeDefinition[] // Local type from config
 
+    /**
+     * @param config - Fusion configuration containing attribute merge strategy and definitions
+     * @param log - Logger instance
+     * @param sources - Source service for fetching source schemas
+     */
     constructor(
         config: FusionConfig,
         private log: LogService,
         private sources: SourceService
     ) {
-        this.attributeMaps = config.attributeMaps
         this.attributeMerge = config.attributeMerge
         this.attributeDefinitions = config.attributeDefinitions
         this.attributeMap = new Map(config.attributeMaps?.map((x) => [x.newAttribute, x]) ?? [])
     }
 
+    /**
+     * Filters an attribute bag down to only the attributes defined in the fusion account schema,
+     * casting each value to match its schema-defined type and cardinality.
+     *
+     * @param attributes - The full attribute bag to filter, or null
+     * @returns A new object containing only schema-defined attributes with properly cast values
+     */
     public getFusionAttributeSubset(attributes: Attributes | null): Attributes {
         if (!attributes) return {}
 
@@ -88,14 +98,17 @@ export class SchemaService {
         }
     }
 
+    /** Fetches the fusion account schema from the fusion source via the API. */
     private async fetchFusionAccountSchema(): Promise<void> {
         this._fusionAccountSchema = await this.fetchAccountSchema(this.sources.fusionSourceId!)
     }
 
+    /** The identity attribute name from the fusion account schema (e.g. "id"). */
     public get fusionIdentityAttribute(): string {
         return this.fusionAccountSchema.identityAttribute
     }
 
+    /** The display attribute name from the fusion account schema (e.g. "name"). */
     public get fusionDisplayAttribute(): string {
         return this.fusionAccountSchema.displayAttribute
     }
@@ -103,6 +116,13 @@ export class SchemaService {
     /** Base fusion attribute names that must always be included in the subset (e.g. reviews for reviewers). */
     private static readonly BASE_FUSION_ATTRIBUTE_NAMES = fusionAccountSchemaAttributes.map((a) => a.name!).filter(Boolean)
 
+    /**
+     * Sets the fusion account schema, either from a provided schema object or by
+     * fetching it from the fusion source. Also builds internal lookup maps for
+     * attribute names and schema definitions.
+     *
+     * @param accountSchema - The schema to use, or undefined to fetch from the fusion source
+     */
     public async setFusionAccountSchema(accountSchema: AccountSchema | undefined): Promise<void> {
         if (accountSchema) {
             this._fusionAccountSchema = accountSchema
@@ -138,6 +158,12 @@ export class SchemaService {
         return this._fusionAccountSchema
     }
 
+    /**
+     * Fetches and converts the account schema for a given source.
+     *
+     * @param id - The source ID to fetch the schema for
+     * @returns The converted AccountSchema
+     */
     private async fetchAccountSchema(id: string): Promise<AccountSchema> {
         const sourceSchemas = await this.sources.listSourceSchemas(id)
         const apiAccountSchema = sourceSchemas.find(isAccountSchema)
@@ -147,6 +173,14 @@ export class SchemaService {
         return accountSchema
     }
 
+    /**
+     * Extracts schema attributes from a source's account schema, applying the configured
+     * attribute merge strategy (first/list/concatenate) to set multi-value cardinality.
+     *
+     * @param schema - The source account schema
+     * @param sourceName - The source name (used for default descriptions)
+     * @returns Array of schema attributes with merge-aware cardinality
+     */
     private getAccountSchemaAttributes(schema: AccountSchema, sourceName: string): SchemaAttribute[] {
         const attributes: SchemaAttribute[] = []
         for (const attribute of schema.attributes) {
@@ -171,6 +205,7 @@ export class SchemaService {
         return attributes
     }
 
+    /** Builds schema attributes for configured attribute mappings. */
     private getAttributeMappingAttributes(): SchemaAttribute[] {
         const attributes: SchemaAttribute[] = []
         for (const attributeMap of this.attributeMap.values()) {
@@ -196,6 +231,7 @@ export class SchemaService {
         return attributes
     }
 
+    /** Builds schema attributes for configured attribute definitions (Velocity expressions). */
     private getAttributeDefinitionAttributes(): SchemaAttribute[] {
         const attributes: SchemaAttribute[] = this.attributeDefinitions!
             .filter((x) => x.name) // Filter out any definitions without names
@@ -212,10 +248,16 @@ export class SchemaService {
         return attributes
     }
 
+    /** Returns the static base fusion schema attributes (status, actions, reviews, etc.). */
     private listFusionAttributes(): SchemaAttribute[] {
         return fusionAccountSchemaAttributes
     }
 
+    /**
+     * Lists all attribute names defined in the current fusion account schema.
+     *
+     * @returns Array of attribute name strings
+     */
     public listSchemaAttributeNames(): string[] {
         return this.fusionAccountSchema.attributes.map((x) => x.name!)
     }

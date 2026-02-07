@@ -117,6 +117,17 @@ export function getCallerFunctionName(skipFrames: number = 2): string | undefine
     return getCallerInfo(skipFrames).origin
 }
 
+/**
+ * Structured logging service wrapping the SailPoint SDK logger.
+ *
+ * Features:
+ * - Configurable log levels (debug, info, warn, error)
+ * - Automatic caller origin detection via stack trace analysis
+ * - Optional external logging to a remote HTTP endpoint
+ * - Assertion-style logging (similar to `console.assert`)
+ * - Crash method that logs and throws a ConnectorError
+ * - Flush support for serverless environments
+ */
 export class LogService {
     private logger: Logger
     private configuredLevel: LogLevel
@@ -124,10 +135,14 @@ export class LogService {
     private externalLoggingEnabled: boolean
     private externalLoggingUrl?: string
     private externalLoggingLevel: LogLevel
-    // Track pending external log promises so they can be flushed before process exit
-    private pendingExternalLogs: Promise<void>[] = []
+    // Track pending external log promises so they can be flushed before process exit.
+    // Uses a Set for O(1) add/delete instead of array indexOf which is O(n).
+    private pendingExternalLogs: Set<Promise<void>> = new Set()
 
-    constructor(private config: LogConfig) {
+    /**
+     * @param config - Logging configuration including level, debug flag, and external logging settings
+     */
+    constructor(config: LogConfig) {
         this.logger = logger
         // Determine configured log level: explicit logLevel > debug flag > default 'info'
         if (config.logLevel) {
@@ -227,13 +242,21 @@ export class LogService {
             // Silently ignore errors to avoid infinite logging loops
             // and to not disrupt the main application flow
         }).finally(() => {
-            // Remove from pending list once settled
-            const idx = this.pendingExternalLogs.indexOf(pending)
-            if (idx !== -1) this.pendingExternalLogs.splice(idx, 1)
+            // O(1) removal from Set (was O(n) indexOf on array)
+            this.pendingExternalLogs.delete(pending)
         })
-        this.pendingExternalLogs.push(pending)
+        this.pendingExternalLogs.add(pending)
     }
 
+    /**
+     * Formats a log message with caller origin and optional data payload.
+     * Handles Error objects, primitives, and JSON-serializable objects.
+     *
+     * @param message - The base log message
+     * @param data - Optional data to append (Error, primitive, or object)
+     * @param origin - The caller origin string (e.g. "FusionService>processFusionAccount")
+     * @returns The formatted log string
+     */
     private formatMessage(
         message: string, 
         data?: any, 
@@ -265,11 +288,17 @@ export class LogService {
     }
 
     /**
-     * Internal log method that handles both regular and external logging
+     * Internal log method that handles both regular and external logging.
+     *
+     * Performance Optimization:
+     * Stack trace capture (getCallerInfo) is one of the most expensive operations in V8.
+     * We only pay that cost when caller origin is actually needed: when external logging
+     * is enabled for this level, or when debug-level logging is configured.
      */
     private log(level: LogLevel, message: string, data?: any): void {
-        const callerInfo = getCallerInfo(3)
-        const { origin } = callerInfo
+        const needsOrigin = this.shouldSendExternal(level) || this.configuredLevel === 'debug'
+        const origin = needsOrigin ? getCallerInfo(3).origin : undefined
+
         const output = this.formatMessage(message, data, origin)
 
         // Use SDK logger - it handles timestamp and level formatting
@@ -281,18 +310,39 @@ export class LogService {
         }
     }
 
+    /**
+     * Logs an informational message. Used for significant operational milestones.
+     * @param message - The log message
+     * @param data - Optional structured data to attach
+     */
     info(message: string, data?: any): void {
         this.log('info', message, data)
     }
 
+    /**
+     * Logs a debug message. Only output when log level is "debug".
+     * Used for detailed diagnostic information during development.
+     * @param message - The log message
+     * @param data - Optional structured data to attach
+     */
     debug(message: string, data?: any): void {
         this.log('debug', message, data)
     }
 
+    /**
+     * Logs a warning message. Used for recoverable issues that deserve attention.
+     * @param message - The log message
+     * @param data - Optional structured data to attach
+     */
     warn(message: string, data?: any): void {
         this.log('warn', message, data)
     }
 
+    /**
+     * Logs an error message. Used for failures that don't warrant an exception.
+     * @param message - The log message
+     * @param data - Optional structured data to attach
+     */
     error(message: string, data?: any): void {
         this.log('error', message, data)
     }
@@ -323,6 +373,14 @@ export class LogService {
         }
     }
 
+    /**
+     * Logs an error message and immediately throws a {@link ConnectorError}.
+     * Used for unrecoverable failures that should halt the current operation.
+     *
+     * @param message - The error message (also used as the ConnectorError message)
+     * @param data - Optional error or structured data to attach
+     * @throws {ConnectorError} Always thrown after logging
+     */
     crash(message: string, data?: any): void {
         const callerInfo = getCallerInfo(2)
         const { origin } = callerInfo
@@ -383,13 +441,13 @@ export class LogService {
      * @param timeoutMs Maximum time to wait for pending logs (default: 5000ms)
      */
     async flush(timeoutMs: number = 5000): Promise<void> {
-        if (this.pendingExternalLogs.length === 0) return
+        if (this.pendingExternalLogs.size === 0) return
         const pending = [...this.pendingExternalLogs]
         await Promise.race([
             Promise.allSettled(pending),
             new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
         ])
         // Clear any stragglers that didn't settle in time
-        this.pendingExternalLogs = []
+        this.pendingExternalLogs.clear()
     }
 }

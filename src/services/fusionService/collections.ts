@@ -191,6 +191,55 @@ export function last<T>(array: T[]): T | undefined {
 }
 
 // ============================================================================
+// Async / Promise Operations
+// ============================================================================
+
+/**
+ * Processes items in batches with a concurrency limit, avoiding unbounded Promise.all.
+ *
+ * Performance Optimization:
+ * Plain `Promise.all(items.map(fn))` creates all promises simultaneously, holding
+ * all intermediate results in memory and risking API rate limits. This utility
+ * processes items in configurable chunks to bound peak memory usage.
+ *
+ * @param items - Array of items to process
+ * @param fn - Async function to apply to each item
+ * @param batchSize - Maximum number of concurrent promises (default: 50)
+ * @returns Array of all results in order
+ */
+export async function promiseAllBatched<T, R>(
+    items: T[],
+    fn: (item: T) => Promise<R>,
+    batchSize: number = 50
+): Promise<R[]> {
+    const results: R[] = []
+    for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize)
+        results.push(...await Promise.all(batch.map(fn)))
+    }
+    return results
+}
+
+/**
+ * Processes items in batches without collecting results (fire-and-forget style).
+ * Useful when the mapping function has side effects but no meaningful return value.
+ *
+ * @param items - Array of items to process
+ * @param fn - Async function to apply to each item
+ * @param batchSize - Maximum number of concurrent promises (default: 50)
+ */
+export async function forEachBatched<T>(
+    items: T[],
+    fn: (item: T) => Promise<void>,
+    batchSize: number = 50
+): Promise<void> {
+    for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize)
+        await Promise.all(batch.map(fn))
+    }
+}
+
+// ============================================================================
 // Type Guards and Helpers
 // ============================================================================
 

@@ -5,6 +5,19 @@ import { reportAction } from './actions/reportAction'
 import { fusionAction } from './actions/fusionAction'
 import { correlateAction } from './actions/correlateAction'
 
+/**
+ * Account create operation - Creates a new fusion account for an identity.
+ *
+ * Processing Flow:
+ * 1. SETUP: Load sources, schema, and initialize attribute counters
+ * 2. IDENTITY: Fetch the target identity by name and locate its fusion identity
+ * 3. ACTIONS: Execute requested actions (report, fusion, correlate) against the fusion identity
+ * 4. OUTPUT: Generate and return the ISC account representation
+ *
+ * @param serviceRegistry - Service registry providing access to all connector services
+ * @param input - SDK input containing the identity name and requested actions
+ * @param res - SDK response object for sending the created account back to the platform
+ */
 export const accountCreate = async (
     serviceRegistry: ServiceRegistry,
     input: StdAccountCreateInput,
@@ -32,7 +45,7 @@ export const accountCreate = async (
         await sources.fetchFusionAccounts()
         await attributes.initializeCounters()
         await fusion.preProcessFusionAccounts()
-        
+
         log.debug('Step 2: Fetching identity information')
         const identity = await identities.fetchIdentityByName(identityName)
         assert(identity, `Identity not found: ${identityName}`)

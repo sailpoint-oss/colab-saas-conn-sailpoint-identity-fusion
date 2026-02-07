@@ -2,7 +2,15 @@ import { ServiceRegistry } from '../../services/serviceRegistry'
 import { FusionAccount } from '../../model/account'
 import { StandardCommand } from '@sailpoint/connector-sdk'
 
-export const generateReport = async (fusionAccount: FusionAccount, includeNonMatches: boolean = false, serviceRegistry?: ServiceRegistry) => {
+/**
+ * Generates and sends a fusion report for the given account.
+ * When called outside of account list, fetches all required data first.
+ */
+export const generateReport = async (
+    fusionAccount: FusionAccount,
+    includeNonMatches: boolean = false,
+    serviceRegistry?: ServiceRegistry
+) => {
     if (!serviceRegistry) {
         serviceRegistry = ServiceRegistry.getCurrent()
     }

@@ -19,6 +19,8 @@ const BRACKET_REGEX = /\[([^ ].+?)\]/g
  * Optimized to use pre-compiled regex and matchAll for better performance
  */
 export const attrSplit = (text: string): string[] => {
+    if (!text) return []
+
     const set = new Set<string>()
     
     // Use matchAll for cleaner and potentially faster iteration
@@ -49,7 +51,8 @@ export const attrConcat = (list: string[], alreadyProcessed: boolean = false): s
         ? list 
         : Array.from(new Set(list)).sort()
     
-    return unique.map((x) => `[${x}]`).join(' ')
+    // Filter out empty strings to prevent empty brackets like "[] [Source]"
+    return unique.filter(Boolean).map((x) => `[${x}]`).join(' ')
 }
 
 /**

@@ -14,6 +14,10 @@ export class ScoringService {
     private readonly fusionAverageScore: number
     private reportMode: boolean = false
 
+    /**
+     * @param config - Fusion configuration containing matching rules and score thresholds
+     * @param log - Logger instance
+     */
     constructor(
         config: FusionConfig,
         private log: LogService
@@ -23,17 +27,41 @@ export class ScoringService {
         this.fusionAverageScore = config.fusionAverageScore ?? 0
     }
 
+    /**
+     * Enables report mode, which forces full evaluation of all matching rules
+     * even when early termination would normally occur (e.g. a mandatory rule fails).
+     * Used when generating fusion reports that need complete score breakdowns.
+     */
     public enableReportMode(): void {
         this.reportMode = true
     }
 
-    public scoreFusionAccount(fusionAccount: FusionAccount, fusionIdentities: FusionAccount[]): void {
+    /**
+     * Scores a fusion account against all existing fusion identities to find matches.
+     * For each identity that meets the matching threshold, a {@link FusionMatch} is
+     * added to the fusion account via {@link FusionAccount.addFusionMatch}.
+     *
+     * @param fusionAccount - The account to score (typically a new/unmatched account)
+     * @param fusionIdentities - The set of existing fusion identities to compare against
+     */
+    public scoreFusionAccount(fusionAccount: FusionAccount, fusionIdentities: Iterable<FusionAccount>): void {
         // Use for...of instead of forEach for better performance in hot path
         for (const fusionIdentity of fusionIdentities) {
             this.compareFusionAccounts(fusionAccount, fusionIdentity)
         }
     }
 
+    /**
+     * Compares two fusion accounts across all configured matching rules and records
+     * a match if thresholds are met. Supports both individual-attribute matching
+     * and average-score matching modes.
+     *
+     * In non-report mode without average scoring, evaluation short-circuits on
+     * the first failed mandatory rule for performance.
+     *
+     * @param fusionAccount - The candidate account being evaluated
+     * @param fusionIdentity - The existing identity to compare against
+     */
     private compareFusionAccounts(
         fusionAccount: FusionAccount,
         fusionIdentity: FusionAccount
@@ -104,6 +132,16 @@ export class ScoringService {
         }
     }
 
+    /**
+     * Scores a single attribute pair using the algorithm specified in the matching config.
+     *
+     * Supported algorithms: name-matcher, jaro-winkler, dice, double-metaphone, lig3.
+     *
+     * @param accountAttribute - The attribute value from the candidate account
+     * @param identityAttribute - The attribute value from the existing identity
+     * @param matchingConfig - Configuration specifying the algorithm, threshold, and flags
+     * @returns A score report with the similarity score and match determination
+     */
     private scoreAttribute(
         accountAttribute: string,
         identityAttribute: string,

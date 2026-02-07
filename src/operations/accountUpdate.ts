@@ -5,7 +5,25 @@ import { assert } from '../utils/assert'
 import { reportAction } from './actions/reportAction'
 import { fusionAction } from './actions/fusionAction'
 import { correlateAction } from './actions/correlateAction'
+import { AttributeOperations } from '../services/attributeService/types'
 
+/**
+ * Account update operation - Applies entitlement changes (actions) to a fusion account.
+ *
+ * Processes attribute changes from the platform, currently supporting action-type
+ * entitlements: report, fusion, and correlate. Each action is executed sequentially
+ * against the rebuilt fusion account.
+ *
+ * Processing Flow:
+ * 1. SETUP: Load sources and schema
+ * 2. REBUILD: Reconstruct the fusion account with refreshed attributes
+ * 3. ACTIONS: Process each change by executing the corresponding action handler
+ * 4. OUTPUT: Generate and return the updated ISC account representation
+ *
+ * @param serviceRegistry - Service registry providing access to all connector services
+ * @param input - SDK input containing the account identity and list of attribute changes
+ * @param res - SDK response object for sending the updated account back to the platform
+ */
 export const accountUpdate = async (
     serviceRegistry: ServiceRegistry,
     input: StdAccountUpdateInput,
@@ -23,10 +41,14 @@ export const accountUpdate = async (
         log.debug('Step 1: Loading sources and schema')
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
-        log.debug('Fusion account schema set successfully')
 
-        log.debug('Step 2: Rebuilding fusion account')
-        const fusionAccount = await rebuildFusionAccount(input.identity, serviceRegistry)
+        log.debug('Step 2: Rebuilding fusion account with fresh attributes')
+        const attributeOperations: AttributeOperations = {
+            refreshMapping: true,
+            refreshDefinition: true,
+            resetDefinition: false,
+        }
+        const fusionAccount = await rebuildFusionAccount(input.identity, attributeOperations, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
         log.debug(`Found fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
 

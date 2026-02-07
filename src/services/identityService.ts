@@ -21,6 +21,11 @@ export class IdentityService {
     // Constructor
     // ------------------------------------------------------------------------
 
+    /**
+     * @param config - Fusion configuration containing identity scope settings
+     * @param log - Logger instance
+     * @param client - API client for ISC search and account operations
+     */
     constructor(
         config: FusionConfig,
         private log: LogService,
@@ -35,11 +40,28 @@ export class IdentityService {
     // ------------------------------------------------------------------------
 
     /**
-     * Get all identities
+     * Get all identities as an array.
+     * Note: Creates a new array on each access. Use identityCount for size checks
+     * and identityValues() for iteration when no array is needed.
      */
     public get identities(): IdentityDocument[] {
         assert(this.identitiesById, 'Identities not fetched')
         return Array.from(this.identitiesById.values())
+    }
+
+    /**
+     * Get the number of cached identities without creating an intermediate array.
+     */
+    public get identityCount(): number {
+        return this.identitiesById.size
+    }
+
+    /**
+     * Returns an iterator over cached identity documents.
+     * Avoids creating a temporary array when only iteration is needed.
+     */
+    public identityValues(): IterableIterator<IdentityDocument> {
+        return this.identitiesById.values()
     }
 
     // ------------------------------------------------------------------------
@@ -80,7 +102,10 @@ export class IdentityService {
     }
 
     /**
-     * Fetch a single identity by ID and cache it
+     * Fetches a single identity by ID and adds it to the cache.
+     *
+     * @param id - The ISC identity ID to fetch
+     * @returns The fetched identity document
      */
     public async fetchIdentityById(id: string): Promise<IdentityDocument> {
         this.log.info(`Fetching identity ${id}.`)
@@ -102,7 +127,10 @@ export class IdentityService {
     }
 
     /**
-     * Fetch a single identity by ID and cache it
+     * Fetches a single identity by exact name match and adds it to the cache.
+     *
+     * @param name - The identity name to search for
+     * @returns The fetched identity document
      */
     public async fetchIdentityByName(name: string): Promise<IdentityDocument> {
         this.log.info(`Fetching identity ${name}.`)
@@ -128,7 +156,10 @@ export class IdentityService {
     // ------------------------------------------------------------------------
 
     /**
-     * Get identity by ID from cache
+     * Retrieves an identity from the local cache by ID.
+     *
+     * @param id - The identity ID to look up
+     * @returns The cached identity document, or undefined if not found
      */
     public getIdentityById(id?: string): IdentityDocument | undefined {
         if (id) {
@@ -141,9 +172,12 @@ export class IdentityService {
     // ------------------------------------------------------------------------
 
     /**
-     * Correlate missing accounts to an identity
-     * Processes all missing accounts asynchronously - promises are tracked and resolved later
-     * The correlation happens in the background and getISCAccount will resolve the promises
+     * Triggers asynchronous correlation of all missing accounts to the fusion account's identity.
+     * Correlation promises are tracked on the fusion account and resolved later during
+     * {@link FusionAccount.resolvePendingOperations}.
+     *
+     * @param fusionAccount - The fusion account with missing accounts to correlate
+     * @returns true if correlation was initiated, false if no identity ID is available
      */
     public async correlateAccounts(fusionAccount: FusionAccount): Promise<boolean> {
         const { missingAccountIds, identityId } = fusionAccount
@@ -155,11 +189,12 @@ export class IdentityService {
         }
 
         if (missingAccountIds.length === 0) {
+            this.log.info(`No missing accounts to correlate for fusion account ${fusionAccount.name}`)
             return true
         }
 
-        this.log.debug(
-            `Starting correlation for ${missingAccountIds.length} missing account(s) for fusion account ${fusionAccount.name}`
+        this.log.info(
+            `Triggering correlation for ${missingAccountIds.length} missing account(s) for fusion account ${fusionAccount.name}`
         )
 
         // Create correlation promises for all missing accounts (fire-and-forget)

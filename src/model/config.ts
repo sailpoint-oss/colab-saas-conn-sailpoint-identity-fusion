@@ -1,3 +1,4 @@
+/** Base connector configuration provided by the ISC platform. */
 export interface BaseConfig {
     beforeProvisioningRule: string | null
     cloudCacheUpdate: number
@@ -23,32 +24,63 @@ export interface BaseConfig {
     spConnDebugLoggingEnabled: boolean
 }
 
+/**
+ * Configuration for mapping one or more source attributes into a single fusion attribute.
+ * Controls how values are merged when multiple source accounts contribute the same attribute.
+ */
 export interface AttributeMap {
+    /** The target fusion attribute name to create */
     newAttribute: string
+    /** Source attribute names to read values from */
     existingAttributes: string[]
+    /** Strategy for merging values: keep first, collect as list, concatenate strings, or pick from specific source */
     attributeMerge?: 'first' | 'list' | 'concatenate' | 'source'
+    /** Specific source name to use (only applicable when attributeMerge is "source") */
     source?: string
 }
 
+/**
+ * Configuration for a generated attribute whose value is computed via a Velocity template expression.
+ * Supports multiple generation types: normal (template), unique (disambiguated), uuid, and counter.
+ */
 export interface AttributeDefinition {
+    /** The target attribute name */
     name: string
+    /** Apache Velocity template expression for value generation */
     expression?: string
+    /** Case transformation to apply after generation */
     case?: 'same' | 'lower' | 'upper' | 'capitalize'
+    /** Generation strategy: normal template, unique with disambiguation, UUID, or auto-increment counter */
     type?: 'normal' | 'unique' | 'uuid' | 'counter'
+    /** Starting value for counter-type attributes */
     counterStart?: number
+    /** Number of digits for counter-type attributes (zero-padded) */
     digits?: number
+    /** Maximum character length for generated values */
     maxLength?: number
+    /** Whether to normalize (transliterate) the generated value */
     normalize: boolean
+    /** Whether to allow spaces in the generated value */
     spaces: boolean
+    /** Whether to trim whitespace from the generated value */
     trim: boolean
+    /** Whether to regenerate this attribute on every aggregation */
     refresh: boolean
+    /** Set of already-used values for unique-type attributes (populated at runtime) */
     values?: Set<string>
 }
 
+/**
+ * Configuration for a single attribute matching rule used in deduplication scoring.
+ */
 export interface MatchingConfig {
+    /** The attribute name to compare between accounts */
     attribute: string
+    /** The similarity algorithm to use for comparison */
     algorithm?: 'name-matcher' | 'jaro-winkler' | 'lig3' | 'dice' | 'double-metaphone' | 'average' | 'custom'
+    /** Minimum similarity score (0-1) required to consider this attribute a match */
     fusionScore?: number
+    /** If true, this rule must pass for the overall match to succeed (unless average scoring is used) */
     mandatory?: boolean
 }
 
@@ -56,27 +88,26 @@ export interface MatchingConfig {
 // Connection Settings Menu
 // ============================================================================
 
-// Connection Settings Section
+/** ISC API connection credentials. */
 export interface ConnectionSettingsSection {
     baseurl: string
     clientId: string
     clientSecret: string
 }
 
-// Connection Settings Menu
 export type ConnectionSettingsMenu = ConnectionSettingsSection
 
 // ============================================================================
 // Source Settings Menu
 // ============================================================================
 
-// Scope Section
+/** Controls which identities are included in fusion processing. */
 export interface ScopeSection {
     includeIdentities?: boolean
     identityScopeQuery?: string
 }
 
-// Source Configuration
+/** Configuration for a single managed source that feeds into fusion. */
 export interface SourceConfig {
     name: string
     forceAggregation?: boolean
@@ -84,7 +115,7 @@ export interface SourceConfig {
     accountLimit?: number
 }
 
-// Sources Section
+/** Configuration for all managed sources and aggregation behavior. */
 export interface SourcesSection {
     sources: SourceConfig[]
     /**
@@ -97,7 +128,7 @@ export interface SourcesSection {
     taskResultWait: number
 }
 
-// Processing Control Section
+/** Controls various processing behaviors during aggregation. */
 export interface ProcessingControlSection {
     deleteEmpty: boolean
     correlateOnAggregation: boolean
@@ -107,27 +138,26 @@ export interface ProcessingControlSection {
     maxHistoryMessages: number
 }
 
-// Source Settings Menu
+/** Combined source settings: scope, sources, and processing controls. */
 export interface SourceSettingsMenu extends ScopeSection, SourcesSection, ProcessingControlSection { }
 
 // ============================================================================
 // Attribute Mapping Settings Menu
 // ============================================================================
 
-// Attribute Mapping Definitions Section
+/** Configuration for attribute mapping definitions and the default merge strategy. */
 export interface AttributeMappingDefinitionsSection {
     attributeMerge: 'first' | 'list' | 'concatenate'
     attributeMaps?: AttributeMap[]
 }
 
-// Attribute Mapping Settings Menu
 export type AttributeMappingSettingsMenu = AttributeMappingDefinitionsSection
 
 // ============================================================================
 // Attribute Definition Settings Menu
 // ============================================================================
 
-// Attribute Definition Settings Section
+/** Configuration for generated attribute definitions (Velocity templates). */
 export interface AttributeDefinitionSettingsSection {
     attributeDefinitions: AttributeDefinition[]
     /**
@@ -137,14 +167,13 @@ export interface AttributeDefinitionSettingsSection {
     maxAttempts?: number
 }
 
-// Attribute Definition Settings Menu
 export type AttributeDefinitionSettingsMenu = AttributeDefinitionSettingsSection
 
 // ============================================================================
 // Fusion Settings Menu
 // ============================================================================
 
-// Matching Settings Section
+/** Configuration for deduplication matching rules and scoring strategy. */
 export interface MatchingSettingsSection {
     matchingConfigs?: MatchingConfig[]
     fusionUseAverageScore: boolean
@@ -152,7 +181,7 @@ export interface MatchingSettingsSection {
     fusionMergingIdentical: boolean
 }
 
-// Review Settings Section
+/** Configuration for the manual review workflow and fusion reports. */
 export interface ReviewSettingsSection {
     fusionFormAttributes?: string[]
     fusionFormExpirationDays: number
@@ -160,14 +189,14 @@ export interface ReviewSettingsSection {
     fusionReportOnAggregation?: boolean
 }
 
-// Fusion Settings Menu
+/** Combined fusion settings: matching rules and review workflow. */
 export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSettingsSection { }
 
 // ============================================================================
 // Advanced Settings Menu
 // ============================================================================
 
-// Developer Settings Section
+/** Developer/debug settings including reset flag and external logging. */
 export interface DeveloperSettingsSection {
     reset: boolean
     externalLoggingEnabled: boolean
@@ -255,7 +284,7 @@ export interface ProxySettingsSection {
     proxyPassword?: string
 }
 
-// Advanced Settings Menu
+/** Combined advanced settings: developer, connection tuning, and proxy. */
 export interface AdvancedSettingsMenu
     extends DeveloperSettingsSection,
     AdvancedConnectionSettingsSection,
@@ -265,6 +294,7 @@ export interface AdvancedSettingsMenu
 // Internal/Computed fields
 // ============================================================================
 
+/** Internal constants and computed values not exposed through the UI configuration. */
 export interface InternalConfig {
     readonly fusionScoreMap?: Map<string, number>
     readonly requestsPerSecondConstant: number
@@ -293,6 +323,10 @@ export interface InternalConfig {
 // Source Config - Combination of all menus
 // ============================================================================
 
+/**
+ * Complete fusion connector configuration. Combines all menu sections, the base
+ * ISC platform config, and internal computed constants into a single interface.
+ */
 export interface FusionConfig
     extends BaseConfig,
     ConnectionSettingsMenu,

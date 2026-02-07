@@ -1,4 +1,3 @@
-import { LogService } from './logService'
 import { Status } from '../model/status'
 import { Action } from '../model/action'
 import { statuses } from '../data/status'
@@ -9,20 +8,25 @@ import { SourceService } from './sourceService'
  * Service for building status and action entitlements.
  */
 export class EntitlementService {
-    constructor(
-        private log: LogService,
-        private sources: SourceService
-    ) {}
+    /**
+     * @param sources - Source service for accessing managed source names (used for reviewer entitlements)
+     */
+    constructor(private sources: SourceService) {}
 
     /**
-     * Build status entitlements
+     * Builds the list of status entitlements from the static status definitions.
+     *
+     * @returns Array of Status entitlement objects
      */
     public listStatusEntitlements(): Status[] {
         return statuses.map((x) => new Status(x))
     }
 
     /**
-     * Build action entitlements
+     * Builds the list of action entitlements, including static actions (report, fusion, correlate)
+     * and dynamic per-source reviewer entitlements.
+     *
+     * @returns Array of Action entitlement objects
      */
     public listActionEntitlements(): Action[] {
         const sources = this.sources.managedSources

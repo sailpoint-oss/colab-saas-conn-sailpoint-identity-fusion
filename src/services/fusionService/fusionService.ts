@@ -10,12 +10,13 @@ import { attrConcat, AttributeService } from '../attributeService'
 import { assert } from '../../utils/assert'
 import { pickAttributes } from '../../utils/attributes'
 import { createUrlContext, UrlContext } from '../../utils/url'
-import { mapValuesToArray } from './collections'
+import { mapValuesToArray, forEachBatched, promiseAllBatched } from './collections'
 import { FusionDecision } from '../../model/form'
 import { FusionMatch } from '../scoringService'
 import { ScoringService } from '../scoringService'
 import { SchemaService } from '../schemaService'
 import { FusionReport, FusionReportAccount } from './types'
+import { AttributeOperations } from '../attributeService/types'
 
 // ============================================================================
 // FusionService Class
@@ -49,6 +50,17 @@ export class FusionService {
     // Constructor
     // ------------------------------------------------------------------------
 
+    /**
+     * @param config - Fusion configuration
+     * @param log - Logger instance
+     * @param identities - Identity service for identity lookups and correlation
+     * @param sources - Source service for accessing source accounts and config
+     * @param forms - Form service for creating and managing review forms
+     * @param attributes - Attribute service for mapping and generating attributes
+     * @param scoring - Scoring service for deduplication similarity scoring
+     * @param schemas - Schema service for attribute schema lookups
+     * @param commandType - The current SDK command type (e.g. StdAccountList)
+     */
     constructor(
         private config: FusionConfig,
         private log: LogService,
@@ -76,14 +88,19 @@ export class FusionService {
     // ------------------------------------------------------------------------
 
     /**
-     * Check if reset is enabled
+     * Checks if the reset flag is enabled in configuration.
+     *
+     * @returns true if a full reset was requested
      */
     public isReset(): boolean {
         return this.reset
     }
 
     /**
-     * Get fusion identity by identity ID
+     * Retrieves a fusion identity from the in-memory map by ISC identity ID.
+     *
+     * @param identityId - The ISC identity ID to look up
+     * @returns The fusion account for this identity, or undefined if not found
      */
     public getFusionIdentity(identityId: string): FusionAccount | undefined {
         return this.fusionIdentityMap.get(identityId)
@@ -107,6 +124,7 @@ export class FusionService {
         await this.sources.patchSourceConfig(fusionSourceId, requestParameters)
     }
 
+    /** Clears the persisted fusion state in the source configuration. */
     public async resetState(): Promise<void> {
         const fusionSourceId = this.sources.fusionSourceId
         const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
@@ -131,7 +149,7 @@ export class FusionService {
      */
     public async preProcessFusionAccounts(): Promise<void> {
         const fusionAccounts = this.sources.fusionAccounts
-        await Promise.all(fusionAccounts.map((x: Account) => this.preProcessFusionAccount(x)))
+        await forEachBatched(fusionAccounts, (x: Account) => this.preProcessFusionAccount(x).then(() => {}))
     }
 
     /**
@@ -155,12 +173,16 @@ export class FusionService {
     public async processFusionAccounts(): Promise<void> {
         const fusionAccounts = this.sources.fusionAccounts
         this.log.info(`Processing ${fusionAccounts.length} fusion account(s)`)
-        await Promise.all(fusionAccounts.map((x: Account) => this.processFusionAccount(x)))
+        await forEachBatched(fusionAccounts, (x: Account) => this.processFusionAccount(x).then(() => {}))
         this.log.info('Fusion accounts processing completed')
     }
 
     /**
-     * Pre-process a single fusion account
+     * Pre-processes a single fusion account: creates the FusionAccount model,
+     * generates its key, and registers it in the fusion identity map.
+     *
+     * @param account - The raw ISC account from the fusion source
+     * @returns The pre-processed FusionAccount, or undefined if the account was skipped
      */
     public async preProcessFusionAccount(account: Account): Promise<FusionAccount | undefined> {
         assert(
@@ -178,13 +200,13 @@ export class FusionService {
         }
 
         const key = this.attributes.getSimpleKey(fusionAccount)
-        
+
         // Skip account if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
         if (!key) {
             this.log.info(`Skipped fusion account during pre-processing: ${fusionAccount.name} (${fusionAccount.nativeIdentity})`)
             return undefined
         }
-        
+
         fusionAccount.setKey(key)
 
         this.setFusionAccount(fusionAccount)
@@ -210,14 +232,15 @@ export class FusionService {
      * @param account - The fusion account from the platform
      * @returns Processed FusionAccount with all layers applied, or undefined if account was skipped
      */
-    public async processFusionAccount(account: Account): Promise<FusionAccount | undefined> {
+    public async processFusionAccount(account: Account, attributeOperations: AttributeOperations = { refreshMapping: false, refreshDefinition: false, resetDefinition: false }): Promise<FusionAccount | undefined> {
+        const { refreshMapping, refreshDefinition, resetDefinition } = attributeOperations
         const fusionAccount = await this.preProcessFusionAccount(account)
-        
+
         // If preProcessFusionAccount returned undefined, the account was skipped
         if (!fusionAccount) {
             return undefined
         }
-        
+
         assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
         const identityId = account.identityId!
 
@@ -243,8 +266,13 @@ export class FusionService {
         if (this.commandType === StandardCommand.StdAccountList) {
             await this.attributes.registerUniqueAttributes(fusionAccount)
         }
+
+        fusionAccount.setNeedsRefresh(fusionAccount.needsRefresh || refreshDefinition || refreshMapping)
+        fusionAccount.setNeedsReset(resetDefinition)
+
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshNonUniqueAttributes(fusionAccount)
+        await this.attributes.refreshUniqueAttributes(fusionAccount)
 
         // Correlate missing accounts if correlateOnAggregation is enabled and there are missing accounts
         // Status/action will be updated after correlation promises resolve in getISCAccount
@@ -276,7 +304,7 @@ export class FusionService {
     public async processIdentities(): Promise<void> {
         const { identities } = this.identities
         this.log.info(`Processing ${identities.length} identities`)
-        await Promise.all(identities.map((x) => this.processIdentity(x)))
+        await forEachBatched(identities, (x) => this.processIdentity(x))
         const { managedSources } = this.sources
         managedSources.forEach((source) => {
             this.sourcesByName.set(source.name, source)
@@ -323,13 +351,13 @@ export class FusionService {
             await this.attributes.refreshAttributes(fusionAccount)
 
             const key = this.attributes.getSimpleKey(fusionAccount)
-            
+
             // Skip identity if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
             if (!key) {
                 this.log.info(`Skipped identity during processing: ${identity.name} (${identityId})`)
                 return
             }
-            
+
             fusionAccount.setKey(key)
 
             // Set display attribute using the attributes getter
@@ -393,12 +421,16 @@ export class FusionService {
         }
 
         // Apply only finished decisions to fusion identities.
-        await Promise.all(identityFusionDecisions.map((x) => this.processIdentityFusionDecision(x)))
+        await forEachBatched(identityFusionDecisions, (x) => this.processIdentityFusionDecision(x))
         this.log.info('Identity fusion decisions processing completed')
     }
 
     /**
-     * Process a single identity fusion decision
+     * Processes a single identity fusion decision (reviewer form response).
+     * Creates a new fusion identity for "new identity" decisions, or merges
+     * into an existing one for "authorized" decisions.
+     *
+     * @param fusionDecision - The reviewer's decision from the review form
      */
     public async processIdentityFusionDecision(fusionDecision: FusionDecision): Promise<void> {
         // Skip unfinished decisions - they represent in-progress reviews and should not
@@ -426,7 +458,7 @@ export class FusionService {
 
         if (fusionDecision.newIdentity) {
             const key = this.attributes.getSimpleKey(fusionAccount)
-            
+
             // Skip if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
             if (!key) {
                 this.log.info(
@@ -435,7 +467,7 @@ export class FusionService {
                 )
                 return
             }
-            
+
             fusionAccount.setKey(key)
 
             this.setFusionAccount(fusionAccount)
@@ -472,7 +504,7 @@ export class FusionService {
         const { managedAccounts } = this.sources
         this.newManagedAccountsCount = managedAccounts.length
         this.log.info(`Processing ${managedAccounts.length} managed account(s)`)
-        await Promise.all(managedAccounts.map((x: Account) => this.processManagedAccount(x)))
+        await forEachBatched(managedAccounts, (x: Account) => this.processManagedAccount(x))
         this.log.info('Managed accounts processing completed')
     }
 
@@ -508,7 +540,11 @@ export class FusionService {
     }
 
     /**
-     * Process a single managed account
+     * Processes a single uncorrelated managed account through the deduplication workflow.
+     * After scoring, the account is either auto-correlated (perfect match), sent for
+     * manual review (partial match), or added as an unmatched new identity.
+     *
+     * @param account - The uncorrelated ISC account from a managed source
      */
     public async processManagedAccount(account: Account): Promise<void> {
         const fusionAccount = await this.analyzeManagedAccount(account)
@@ -543,7 +579,7 @@ export class FusionService {
             this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
             await this.attributes.refreshUniqueAttributes(fusionAccount)
             const key = this.attributes.getSimpleKey(fusionAccount)
-            
+
             // Skip if getSimpleKey returns undefined (missing ID with skipAccountsWithMissingId enabled)
             if (!key) {
                 this.log.info(
@@ -551,7 +587,7 @@ export class FusionService {
                 )
                 return
             }
-            
+
             fusionAccount.setKey(key)
             fusionAccount.setUnmatched()
 
@@ -566,11 +602,15 @@ export class FusionService {
     public async analyzeManagedAccounts(): Promise<void> {
         const { managedAccounts } = this.sources
 
-        await Promise.all(managedAccounts.map((x: Account) => this.analyzeManagedAccount(x)))
+        await forEachBatched(managedAccounts, (x: Account) => this.analyzeManagedAccount(x).then(() => {}))
     }
 
     /**
-     * Analyze a single managed account
+     * Analyzes a single managed account by scoring it against all existing fusion identities.
+     * Tracks the account for reporting regardless of match outcome.
+     *
+     * @param account - The managed source account to analyze
+     * @returns The scored FusionAccount with match results populated
      */
     public async analyzeManagedAccount(account: Account): Promise<FusionAccount> {
         const { name, sourceName } = account
@@ -593,26 +633,60 @@ export class FusionService {
     }
 
     // ------------------------------------------------------------------------
+    // Public Cleanup Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Clear analyzed managed account arrays to free memory.
+     *
+     * Memory Optimization:
+     * analyzedManagedAccounts and potentialDuplicateAccounts accumulate during
+     * processManagedAccounts. They are also cleared inside generateReport(), but
+     * when fusionReportOnAggregation is false, generateReport is never called and
+     * these arrays would persist for the lifetime of the operation. This method
+     * ensures they are always released regardless of report configuration.
+     *
+     * Safe to call multiple times (idempotent).
+     */
+    public clearAnalyzedAccounts(): void {
+        if (this.analyzedManagedAccounts.length > 0 || this.potentialDuplicateAccounts.length > 0) {
+            this.log.debug('Clearing analyzed managed accounts from memory')
+            this.analyzedManagedAccounts = []
+            this.potentialDuplicateAccounts = []
+        }
+    }
+
+    // ------------------------------------------------------------------------
     // Public Output/Listing Methods
     // ------------------------------------------------------------------------
 
     /**
-     * List all ISC accounts (fusion accounts and identity accounts)
+     * Lists all ISC accounts (fusion accounts and identity accounts) for platform output.
+     * Optionally filters out orphan accounts when deleteEmpty is enabled.
+     *
+     * Performance Optimization:
+     * - Iterates Maps directly instead of creating intermediate arrays
+     * - Uses promiseAllBatched to bound concurrent getISCAccount calls
+     * - Avoids spread operator to combine arrays
+     *
+     * @returns Array of formatted account outputs ready for the platform
      */
     public async listISCAccounts(): Promise<StdAccountListOutput[]> {
-        let fusionIdentities = Array.from(this.fusionIdentityMap.values())
-        let fusionAccounts = Array.from(this.fusionAccountMap.values())
-        if (this.deleteEmpty && this.commandType === StandardCommand.StdAccountList) {
-            fusionIdentities = fusionIdentities.filter((x) => !x.isOrphan())
-            fusionAccounts = fusionAccounts.filter((x) => !x.isOrphan())
+        const shouldFilter = this.deleteEmpty && this.commandType === StandardCommand.StdAccountList
+        const eligible: FusionAccount[] = []
+
+        for (const account of this.fusionAccountMap.values()) {
+            if (!shouldFilter || !account.isOrphan()) {
+                eligible.push(account)
+            }
+        }
+        for (const identity of this.fusionIdentityMap.values()) {
+            if (!shouldFilter || !identity.isOrphan()) {
+                eligible.push(identity)
+            }
         }
 
-        const accounts = [
-            ...fusionAccounts,
-            ...fusionIdentities,
-        ]
-
-        return await Promise.all(accounts.map((x) => this.getISCAccount(x)))
+        return await promiseAllBatched(eligible, (x) => this.getISCAccount(x))
     }
 
     // ------------------------------------------------------------------------
@@ -666,7 +740,12 @@ export class FusionService {
     }
 
     /**
-     * Convert a fusion account to ISC account output format
+     * Converts a fusion account to the ISC account output format.
+     * Resolves all pending operations (correlations, reviews) before building the output,
+     * then syncs collection attributes and applies the schema subset filter.
+     *
+     * @param fusionAccount - The fusion account to convert
+     * @returns The formatted account output for the platform
      */
     public async getISCAccount(fusionAccount: FusionAccount): Promise<StdAccountListOutput> {
         await fusionAccount.resolvePendingOperations()
@@ -696,12 +775,17 @@ export class FusionService {
         }
     }
 
-    public get fusionIdentities(): FusionAccount[] {
-        return mapValuesToArray(this.fusionIdentityMap)
+    /**
+     * Returns an iterable over fusion identity accounts.
+     * Avoids creating a temporary array when only iteration is needed (e.g. scoring).
+     */
+    public get fusionIdentities(): Iterable<FusionAccount> {
+        return this.fusionIdentityMap.values()
     }
 
     /**
-     * Get all fusion accounts keyed by native identity
+     * Get all fusion accounts keyed by native identity as an array.
+     * Note: Creates a new array on each access.
      */
     public get fusionAccounts(): FusionAccount[] {
         return mapValuesToArray(this.fusionAccountMap)
@@ -745,7 +829,10 @@ export class FusionService {
     }
 
     /**
-     * Get a fusion account by native identity
+     * Retrieves a fusion account by its native identity (unique key).
+     *
+     * @param nativeIdentity - The native identity string to look up
+     * @returns The fusion account, or undefined if not found
      */
     public getFusionAccountByNativeIdentity(nativeIdentity: string): FusionAccount | undefined {
         return this.fusionAccountMap.get(nativeIdentity)

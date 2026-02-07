@@ -13,6 +13,14 @@ import { EntitlementService } from './entitlementService'
 import { ScoringService } from './scoringService'
 import { MessagingService } from './messagingService'
 
+/**
+ * Central dependency injection container for all connector services.
+ *
+ * Instantiates and wires together all services in dependency order during construction.
+ * Each service can be overridden via the SDK context (useful for testing). A static
+ * singleton reference tracks the "current" registry for the active operation so that
+ * deeply-nested code can access services without prop-drilling.
+ */
 export class ServiceRegistry {
     private static current?: ServiceRegistry
     public log: LogService
@@ -28,9 +36,16 @@ export class ServiceRegistry {
     public scoring: ScoringService
     public messaging: MessagingService
 
+    /**
+     * Creates a new ServiceRegistry, initializing all services in dependency order.
+     * Services provided via `context` override the default implementations.
+     *
+     * @param config - The resolved fusion configuration
+     * @param context - SDK context, optionally providing pre-built service overrides
+     */
     constructor(
         public config: FusionConfig,
-        private context: Context
+        context: Context
     ) {
         // Initialize core services first
         this.log = context.logService ?? new LogService(this.config)
@@ -39,7 +54,7 @@ export class ServiceRegistry {
 
         // Initialize services that don't depend on others
         this.sources = context.sourceService ?? new SourceService(this.config, this.log, this.client)
-        this.entitlements = context.entitlementService ?? new EntitlementService(this.log, this.sources)
+        this.entitlements = context.entitlementService ?? new EntitlementService(this.sources)
         this.scoring = context.scoringService ?? new ScoringService(this.config, this.log)
         this.identities = context.identityService ?? new IdentityService(this.config, this.log, this.client)
         this.messaging =
@@ -72,9 +87,22 @@ export class ServiceRegistry {
             )
     }
 
+    /**
+     * Sets the active registry singleton for the current operation.
+     * Called at the start of every operation handler.
+     *
+     * @param reg - The registry instance to make globally accessible
+     */
     static setCurrent(reg: ServiceRegistry) {
         this.current = reg
     }
+
+    /**
+     * Retrieves the active registry singleton.
+     *
+     * @returns The current ServiceRegistry instance
+     * @throws {ConnectorError} If no registry has been set via {@link setCurrent}
+     */
     static getCurrent(): ServiceRegistry {
         if (!this.current) {
             throw new ConnectorError('ServiceRegistry not found', ConnectorErrorType.Generic)
@@ -82,6 +110,9 @@ export class ServiceRegistry {
         return this.current!
     }
 
+    /**
+     * Clears the active registry singleton, releasing all service references.
+     */
     static clear() {
         this.current = undefined
     }
