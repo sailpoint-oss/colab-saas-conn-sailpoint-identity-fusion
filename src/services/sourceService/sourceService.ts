@@ -12,6 +12,7 @@ import {
     SourcesV2025ApiGetSourceSchemasRequest,
     OwnerDto,
     SourcesV2025ApiListSourcesRequest,
+    JsonPatchOperationV2025OpV2025,
 } from 'sailpoint-api-client'
 import { ConnectorError, ConnectorErrorType } from '@sailpoint/connector-sdk'
 import { BaseConfig, FusionConfig, SourceConfig } from '../../model/config'
@@ -579,9 +580,9 @@ export class SourceService {
             id: fusionSourceId,
             jsonPatchOperationV2025: [
                 {
-                    op: 'replace',
+                    op: 'add' as JsonPatchOperationV2025OpV2025,
                     path: '/connectorAttributes/processing',
-                    value: 'true',
+                    value: true,
                 },
             ],
         }
@@ -610,9 +611,9 @@ export class SourceService {
                 id: fusionSourceId,
                 jsonPatchOperationV2025: [
                     {
-                        op: 'replace',
+                        op: 'add' as JsonPatchOperationV2025OpV2025,
                         path: '/connectorAttributes/processing',
-                        value: 'false',
+                        value: false,
                     },
                 ],
             }
