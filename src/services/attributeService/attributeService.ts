@@ -261,20 +261,11 @@ export class AttributeService {
 
     /**
      * Refreshes all attribute definitions for a fusion account.
-     * When forced, unregisters existing unique values and clears all definition-generated
-     * attributes before regenerating.
      *
      * @param fusionAccount - The fusion account to refresh attributes for
-     * @param force - If true, unregister unique values and clear all generated attributes first
      */
-    public async refreshAttributes(fusionAccount: FusionAccount, force: boolean = false): Promise<void> {
+    public async refreshAttributes(fusionAccount: FusionAccount): Promise<void> {
         const allDefinitions = this.attributeDefinitionConfig
-        if (force) {
-            await this.unregisterUniqueAttributes(fusionAccount)
-            allDefinitions.forEach((def) => {
-                delete fusionAccount.attributes[def.name]
-            })
-        }
         await this.applyAttributeDefinitions(fusionAccount, allDefinitions)
     }
 
@@ -309,9 +300,12 @@ export class AttributeService {
 
         const allDefinitions = this.attributeDefinitionConfig
         const uniqueAttributeDefinitions = allDefinitions.filter(isUniqueAttribute)
-        uniqueAttributeDefinitions.forEach((def) => {
-            def.refresh = true
-        })
+        if (fusionAccount.needsReset) {
+            await this.unregisterUniqueAttributes(fusionAccount)
+        }
+        // uniqueAttributeDefinitions.forEach((def) => {
+        //     def.refresh = true
+        // })
 
         await this.applyAttributeDefinitions(fusionAccount, uniqueAttributeDefinitions)
     }
@@ -332,7 +326,9 @@ export class AttributeService {
 
         for (const def of uniqueDefinitions) {
             const value = fusionAccount.attributes[def.name]
-            if (value !== undefined && value !== null && value !== '') {
+            const isEmpty = value === undefined || value === null || value === ''
+            const needsReset = fusionAccount.needsReset
+            if (isEmpty || needsReset) {
                 const valueStr = String(value)
                 const lockKey = `${def.type}:${def.name}`
                 await this.locks.withLock(lockKey, async () => {

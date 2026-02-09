@@ -61,6 +61,7 @@ export const accountList = async (
             await forms.deleteExistingForms()
             await fusion.disableReset()
             await fusion.resetState()
+            await sources.resetBatchCumulativeCount()
             return
         }
 
@@ -141,6 +142,9 @@ export const accountList = async (
 
         await attributes.saveState()
         log.debug('Attribute state saved')
+
+        await sources.saveBatchCumulativeCount()
+        log.debug('Batch cumulative count saved')
 
         // Memory optimization: accounts have been sent and are no longer needed
         sources.clearManagedAccounts()

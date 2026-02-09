@@ -86,6 +86,9 @@ export class SourceService {
     private readonly taskResultWait: number
     private readonly concurrencyCheckEnabled: boolean
 
+    // Batch mode cumulative count per source (persisted across runs)
+    private batchCumulativeCount: Record<string, number>
+
     // ------------------------------------------------------------------------
     // Constructor
     // ------------------------------------------------------------------------
@@ -105,6 +108,12 @@ export class SourceService {
         this.taskResultRetries = config.taskResultRetries
         this.taskResultWait = config.taskResultWait
         this.concurrencyCheckEnabled = config.concurrencyCheckEnabled
+
+        // Read persisted batch cumulative count (may be undefined, false, or an object)
+        const raw = config.batchCumulativeCount
+        this.batchCumulativeCount = (raw && typeof raw === 'object' && !Array.isArray(raw))
+            ? { ...raw }
+            : {}
     }
 
     // ------------------------------------------------------------------------
@@ -337,14 +346,49 @@ export class SourceService {
     }
 
     /**
-     * Fetch and cache managed accounts from all managed sources
+     * Fetch and cache managed accounts from all managed sources.
+     *
+     * Batch Mode (cumulative):
+     * When a source has an `accountLimit`, the effective limit grows across runs
+     * so that previously fetched accounts are always included in subsequent runs.
+     * The effective limit is `batchCumulativeCount[sourceName] + accountLimit`.
+     * After fetching, the actual number of accounts retrieved is stored as the
+     * new cumulative count for that source.
      */
     public async fetchManagedAccounts(): Promise<void> {
         this.log.debug(`Fetching managed accounts from ${this.managedSources.length} source(s)`)
+
+        // Compute effective limits per source (cumulative batch offset + accountLimit)
+        const sourcesWithLimits = this.managedSources.map((s) => {
+            const baseLimit = s.config?.accountLimit
+            let effectiveLimit: number | undefined
+            if (baseLimit !== undefined) {
+                const cumulativeCount = this.batchCumulativeCount[s.name] ?? 0
+                effectiveLimit = cumulativeCount + baseLimit
+                this.log.debug(
+                    `Source ${s.name}: accountLimit=${baseLimit}, cumulativeCount=${cumulativeCount}, effectiveLimit=${effectiveLimit}`
+                )
+            }
+            return { source: s, effectiveLimit }
+        })
+
         const accountBatches = await promiseAllBatched(
-            this.managedSources,
-            (s) => this.fetchSourceAccountsById(s.id, s.config?.accountLimit)
+            sourcesWithLimits,
+            ({ source, effectiveLimit }) => this.fetchSourceAccountsById(source.id, effectiveLimit)
         )
+
+        // Update cumulative counts with actual fetched counts per source
+        for (let i = 0; i < sourcesWithLimits.length; i++) {
+            const { source } = sourcesWithLimits[i]
+            if (source.config?.accountLimit !== undefined) {
+                const fetchedCount = accountBatches[i].length
+                this.batchCumulativeCount[source.name] = fetchedCount
+                this.log.debug(
+                    `Source ${source.name}: fetched ${fetchedCount} account(s), updated cumulative count`
+                )
+            }
+        }
+
         const accounts = accountBatches.flat()
         this.managedAccountsById = new Map(accounts.map((account) => [account.id!, account]))
         this.log.debug(`Fetched ${this.managedAccountsById.size} managed account(s)`)
@@ -565,12 +609,12 @@ export class SourceService {
 
         const processing = (source!.connectorAttributes as any)?.processing
         if (processing === 'true' || processing === true) {
-            this.log.warn('Processing flag is active. Resetting it and aborting this run.')
+            this.log.warn('Processing flag is active. Aborting this run.')
             // Reset the flag so the next attempt can proceed
-            await this.releaseProcessLock()
+            // await this.releaseProcessLock()
             throw new ConnectorError(
                 'An account aggregation is already in progress or the previous one did not finish cleanly. ' +
-                'The processing flag has been reset. Please verify no other aggregation is running and try again.',
+                'Please verify no other aggregation is running and try again.',
                 ConnectorErrorType.Generic
             )
         }
@@ -622,6 +666,66 @@ export class SourceService {
             this.log.error(`Failed to release processing lock: ${error instanceof Error ? error.message : String(error)}`)
             // Don't throw here as this is typically called in cleanup
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // Public Batch Cumulative Count Methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Persist the current batch cumulative count to the fusion source configuration.
+     *
+     * Called at the end of a successful account list operation so that the next run
+     * knows how many accounts were previously fetched per source. Only writes to the
+     * API when at least one source has an `accountLimit` (i.e. batch mode is active).
+     */
+    public async saveBatchCumulativeCount(): Promise<void> {
+        if (Object.keys(this.batchCumulativeCount).length === 0) {
+            return
+        }
+
+        const fusionSourceId = this.fusionSourceId
+        this.log.info(`Saving batch cumulative count: ${JSON.stringify(this.batchCumulativeCount)}`)
+        const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
+            id: fusionSourceId,
+            jsonPatchOperationV2025: [
+                {
+                    op: 'add' as JsonPatchOperationV2025OpV2025,
+                    path: '/connectorAttributes/batchCumulativeCount',
+                    value: this.batchCumulativeCount,
+                },
+            ],
+        }
+        await this.patchSourceConfig(fusionSourceId, requestParameters)
+    }
+
+    /**
+     * Clear the persisted batch cumulative count from the fusion source configuration.
+     *
+     * Called during a reset operation so that the next run starts fresh with no
+     * cumulative offset, effectively re-fetching only the base `accountLimit`
+     * number of accounts per source. No-op when batch mode was never active
+     * (no persisted cumulative counts exist).
+     */
+    public async resetBatchCumulativeCount(): Promise<void> {
+        if (Object.keys(this.batchCumulativeCount).length === 0) {
+            return
+        }
+
+        this.batchCumulativeCount = {}
+        const fusionSourceId = this.fusionSourceId
+        this.log.info('Resetting batch cumulative count')
+        const requestParameters: SourcesV2025ApiUpdateSourceRequest = {
+            id: fusionSourceId,
+            jsonPatchOperationV2025: [
+                {
+                    op: 'add' as JsonPatchOperationV2025OpV2025,
+                    path: '/connectorAttributes/batchCumulativeCount',
+                    value: {},
+                },
+            ],
+        }
+        await this.patchSourceConfig(fusionSourceId, requestParameters)
     }
 
     // ------------------------------------------------------------------------

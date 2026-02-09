@@ -325,6 +325,14 @@ export interface InternalConfig {
         readonly correlateAccounts: number
     }
     readonly fusionState?: Record<string, any>
+    /**
+     * Persisted cumulative count of accounts fetched per source in batch mode.
+     * Used when a source has an `accountLimit`: the effective limit for each run
+     * is `batchCumulativeCount[sourceName] + accountLimit`, ensuring previously
+     * fetched accounts are always included. Updated after each successful run
+     * and cleared on reset.
+     */
+    readonly batchCumulativeCount?: Record<string, number>
 }
 
 // ============================================================================
