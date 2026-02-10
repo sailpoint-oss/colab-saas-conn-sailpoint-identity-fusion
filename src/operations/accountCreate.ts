@@ -1,4 +1,4 @@
-import { AttributeChangeOp, Response, StdAccountCreateInput, StdAccountCreateOutput } from '@sailpoint/connector-sdk'
+import { AttributeChangeOp, ConnectorError, Response, StdAccountCreateInput, StdAccountCreateOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { assert } from '../utils/assert'
 import { reportAction } from './actions/reportAction'
@@ -87,6 +87,7 @@ export const accountCreate = async (
         res.send(iscAccount)
         timer.end(`✓ Account creation completed for ${identityName}`)
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash(`Failed to create account ${identityName}`, error)
     }
 }

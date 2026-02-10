@@ -1,4 +1,4 @@
-import { Response, StdTestConnectionOutput } from '@sailpoint/connector-sdk'
+import { ConnectorError, Response, StdTestConnectionOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 
 /**
@@ -26,6 +26,7 @@ export const testConnection = async (
         res.send({})
         timer.end('✓ Test connection completed')
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash('Failed to test connection', error)
     }
 }

@@ -44,6 +44,7 @@ export const entitlementList = async (
 
         timer.end(`✓ Entitlement list completed for type: ${input.type}`)
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash(`Failed to list entitlements for type ${input.type}`, error)
     }
 }

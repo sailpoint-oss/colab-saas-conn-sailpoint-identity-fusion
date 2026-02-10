@@ -1,4 +1,4 @@
-import { Response, StdAccountReadInput, StdAccountReadOutput } from '@sailpoint/connector-sdk'
+import { ConnectorError, Response, StdAccountReadInput, StdAccountReadOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { rebuildFusionAccount } from './helpers/rebuildFusionAccount'
 import { assert } from '../utils/assert'
@@ -53,6 +53,7 @@ export const accountRead = async (
         res.send(iscAccount)
         timer.end(`✓ Account read completed for ${input.identity}`)
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash(`Failed to read account ${input.identity}`, error)
     }
 }

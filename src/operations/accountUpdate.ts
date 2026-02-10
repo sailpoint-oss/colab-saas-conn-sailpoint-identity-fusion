@@ -1,4 +1,4 @@
-import { Response, StdAccountUpdateInput, StdAccountUpdateOutput } from '@sailpoint/connector-sdk'
+import { ConnectorError, Response, StdAccountUpdateInput, StdAccountUpdateOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { rebuildFusionAccount } from './helpers/rebuildFusionAccount'
 import { assert } from '../utils/assert'
@@ -89,6 +89,7 @@ export const accountUpdate = async (
         res.send(iscAccount)
         timer.end(`✓ Account update completed for ${input.identity}`)
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash(`Failed to update account ${input.identity}`, error)
     }
 }

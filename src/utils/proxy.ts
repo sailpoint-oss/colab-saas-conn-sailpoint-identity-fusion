@@ -215,7 +215,9 @@ export const proxy: CommandHandler = async (context, input, res) => {
 
         logger.info(`Proxy sent ${validObjectCount} valid objects to ISC`)
     } catch (error) {
-        throw new ConnectorError(error instanceof Error ? error.message : 'Unknown error')
+        if (error instanceof ConnectorError) throw error
+        const detail = error instanceof Error ? error.message : String(error)
+        throw new ConnectorError(`Proxy operation failed: ${detail}`)
     } finally {
         clearInterval(interval)
     }

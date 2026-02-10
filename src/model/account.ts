@@ -3,7 +3,7 @@ import { getDateFromISOString } from '../utils/date'
 import { toSetFromAttribute as attributeToSet } from '../utils/attributes'
 import { FusionDecision } from './form'
 import { FusionConfig, SourceConfig } from './config'
-import { Attributes, SimpleKeyType } from '@sailpoint/connector-sdk'
+import { Attributes, ConnectorError, ConnectorErrorType, SimpleKeyType } from '@sailpoint/connector-sdk'
 import { FusionMatch } from '../services/scoringService'
 import { attrConcat, attrSplit } from '../services/attributeService/helpers'
 
@@ -118,7 +118,10 @@ export class FusionAccount {
     private constructor() {
         const config = FusionAccount.config
         if (!config) {
-            throw new Error('FusionAccount is not configured. Call FusionAccount.configure(config) first.')
+            throw new ConnectorError(
+                'FusionAccount is not configured. Call FusionAccount.configure(config) before creating accounts.',
+                ConnectorErrorType.Generic
+            )
         }
         this.sourceConfigs = config.sources
         this.fusionAccountRefreshThresholdInSeconds = config.fusionAccountRefreshThresholdInSeconds

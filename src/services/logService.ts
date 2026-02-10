@@ -52,56 +52,90 @@ export function getCallerInfo(skipFrames: number = 2): { origin: string; isOpera
         if (!stack) return { origin: 'unknown', isOperation: false }
 
         const lines = stack.split('\n')
-        // Skip Error constructor, this function, and the logging method
-        const callerLine = lines[skipFrames + 1]
-        if (!callerLine) return { origin: 'unknown', isOperation: false }
 
         // Check if this is from an operations file (works in dev/source)
         // or check the full stack for operations path (works in compiled code)
-        const isOperationByPath = callerLine.includes('/operations/') || stack.includes('/operations/')
-        
-        // Match various function name patterns and extract both class and method when available:
-        // - "    at ClassName.methodName (file:line:col)"
-        // - "    at Object.methodName (file:line:col)"
-        // - "    at functionName (file:line:col)"
-        
-        // Try to match ClassName.methodName first (most specific)
-        const classMethodMatch = callerLine.match(/at\s+(\w+)\.(\w+)\s*\(/)
-        if (classMethodMatch) {
-            const className = classMethodMatch[1]
-            const methodName = classMethodMatch[2]
-            // Skip generic Object prefix, keep meaningful class names
-            if (className !== 'Object') {
-                return { 
-                    origin: `${className}>${methodName}`, 
-                    isOperation: false 
+        const isOperationByPath = stack.includes('/operations/')
+
+        // Walk the stack starting from the caller frame.
+        // When the log call is inside an arrow function or callback (e.g. Promise.all,
+        // withLock), the immediate frame is anonymous and only shows a file path.
+        // In bundled code that file is always "index.js", so we lose context.
+        // Walking up finds the enclosing ClassName.methodName or named function.
+        const startIdx = skipFrames + 1
+        // Limit the walk to avoid traversing runtime/node internals
+        const maxIdx = Math.min(lines.length - 1, startIdx + 8)
+
+        // Infrastructure class names to skip when walking the stack.
+        // These are utility/framework classes that wrap business logic - we want
+        // to attribute the log to the actual business caller, not the wrapper.
+        const INFRASTRUCTURE_CLASSES = new Set([
+            'Object', 'Module', 'Promise',
+            'InMemoryLockService', 'ApiQueue',
+        ])
+
+        // --- Pass 1: find the first ClassName.methodName (most specific) ---
+        // Skip infrastructure classes to find the real business caller.
+        let firstInfraOrigin: string | undefined
+        for (let i = startIdx; i <= maxIdx; i++) {
+            const line = lines[i]
+            if (!line) continue
+
+            const classMethodMatch = line.match(/at\s+(\w+)\.(\w+)\s*\(/)
+            if (classMethodMatch) {
+                const className = classMethodMatch[1]
+                const methodName = classMethodMatch[2]
+
+                if (INFRASTRUCTURE_CLASSES.has(className)) {
+                    // Remember the first infra origin as a fallback
+                    if (!firstInfraOrigin) {
+                        firstInfraOrigin = `${className}>${methodName}`
+                    }
+                    continue
+                }
+
+                // Found a real business class
+                return {
+                    origin: `${className}>${methodName}`,
+                    isOperation: false,
                 }
             }
-            return { origin: methodName, isOperation: isOperationByPath }
         }
 
-        // Try to match standalone function name
-        const functionMatch = callerLine.match(/at\s+(?:new\s+)?(\w+)\s*\(/)
-        if (functionMatch) {
-            const functionName = functionMatch[1]
-            // Check if it's an operation by name or path
-            const isOperation = OPERATION_NAMES.has(functionName) || isOperationByPath
-            // Format operations with brackets
-            if (isOperation) {
-                return { origin: `[${functionName}]`, isOperation: true }
+        // --- Pass 2: find a named function (standalone, not ClassName.method) ---
+        for (let i = startIdx; i <= maxIdx; i++) {
+            const line = lines[i]
+            if (!line) continue
+
+            const functionMatch = line.match(/at\s+(?:new\s+)?(\w+)\s*\(/)
+            if (functionMatch) {
+                const functionName = functionMatch[1]
+                const isOperation = OPERATION_NAMES.has(functionName) || isOperationByPath
+                if (isOperation) {
+                    return { origin: `[${functionName}]`, isOperation: true }
+                }
+                return { origin: functionName, isOperation: isOperationByPath }
             }
-            return { origin: functionName, isOperation: false }
         }
 
-        // If no match, try to extract from the file path
-        const fileMatch = callerLine.match(/[/\\]([^/\\]+)\.(?:ts|js|tsx|jsx)/)
-        if (fileMatch) {
-            const fileName = fileMatch[1]
-            const isOperation = OPERATION_NAMES.has(fileName) || isOperationByPath
-            if (isOperation) {
-                return { origin: `[${fileName}]`, isOperation: true }
+        // If we only found infrastructure callers, use the first one as fallback
+        // (still much better than "index" or "unknown")
+        if (firstInfraOrigin) {
+            return { origin: firstInfraOrigin, isOperation: false }
+        }
+
+        // --- Pass 3: fall back to file name from the immediate caller frame ---
+        const callerLine = lines[startIdx]
+        if (callerLine) {
+            const fileMatch = callerLine.match(/[/\\]([^/\\]+)\.(?:ts|js|tsx|jsx)/)
+            if (fileMatch) {
+                const fileName = fileMatch[1]
+                const isOperation = OPERATION_NAMES.has(fileName) || isOperationByPath
+                if (isOperation) {
+                    return { origin: `[${fileName}]`, isOperation: true }
+                }
+                return { origin: fileName, isOperation: false }
             }
-            return { origin: fileName, isOperation: false }
         }
 
         return { origin: 'unknown', isOperation: false }
@@ -431,7 +465,16 @@ export class LogService {
             this.sendToExternalService('error', message, data, origin)
         }
 
-        throw new ConnectorError(message, ConnectorErrorType.Generic)
+        // Build a descriptive error message that includes the original error detail.
+        // This ensures the user sees context about what went wrong, not just the generic message.
+        let errorMessage = message
+        if (data instanceof Error && data.message && data.message !== message) {
+            errorMessage = `${message}: ${data.message}`
+        } else if (data !== undefined && data !== null && !(data instanceof Error)) {
+            errorMessage = `${message}: ${String(data)}`
+        }
+
+        throw new ConnectorError(errorMessage, ConnectorErrorType.Generic)
     }
 
     /**

@@ -1,4 +1,4 @@
-import { Response, StdAccountListInput, StdAccountListOutput } from '@sailpoint/connector-sdk'
+import { ConnectorError, Response, StdAccountListInput, StdAccountListOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { assert, softAssert } from '../utils/assert'
 import { generateReport } from './helpers/generateReport'
@@ -153,6 +153,7 @@ export const accountList = async (
 
         timer.end(`✓ Account list operation completed successfully - ${accounts.length} account(s) processed`)
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash('Failed to list accounts', error)
     } finally {
         // Only release the lock if we successfully acquired it.

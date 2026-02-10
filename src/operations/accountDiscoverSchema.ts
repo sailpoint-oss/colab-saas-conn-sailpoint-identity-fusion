@@ -1,4 +1,4 @@
-import { Response, StdAccountDiscoverSchemaOutput } from '@sailpoint/connector-sdk'
+import { ConnectorError, Response, StdAccountDiscoverSchemaOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 
 export const accountDiscoverSchema = async (
@@ -18,6 +18,7 @@ export const accountDiscoverSchema = async (
 
         timer.end('✓ Account schema discovery completed')
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash('Failed to discover account schema', error)
     }
 }

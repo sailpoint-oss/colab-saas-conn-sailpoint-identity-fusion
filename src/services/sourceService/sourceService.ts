@@ -201,11 +201,21 @@ export class SourceService {
         this.log.debug('Fetching all sources')
         const { sourcesApi } = this.client
 
-        const listSources = async (requestParameters?: SourcesV2025ApiListSourcesRequest) => {
-            return await sourcesApi.listSources(requestParameters)
+        let apiSources: any[]
+        try {
+            const listSources = async (requestParameters?: SourcesV2025ApiListSourcesRequest) => {
+                return await sourcesApi.listSources(requestParameters)
+            }
+            apiSources = await this.client.paginate(listSources)
+        } catch (error) {
+            if (error instanceof ConnectorError) throw error
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(
+                `Failed to fetch sources from ISC. Please verify your connector configuration and API credentials: ${detail}`,
+                ConnectorErrorType.Generic
+            )
         }
-        const apiSources = await this.client.paginate(listSources)
-        assert(apiSources.length > 0, 'Sources not found')
+        assert(apiSources.length > 0, 'No sources found in ISC. Please verify that the configured sources exist and the connector has access to them.')
 
         // Build a Map for O(1) lookups instead of O(n) find() operations
         const apiSourcesByName = new Map(apiSources.map((s) => [s.name!, s]))
@@ -216,7 +226,7 @@ export class SourceService {
         // Add managed sources (from config.sources)
         for (const sourceConfig of this.sources) {
             const apiSource = apiSourcesByName.get(sourceConfig.name)
-            assert(apiSource, `Unable to find source: ${sourceConfig.name}`)
+            assert(apiSource, `Unable to find managed source "${sourceConfig.name}" in ISC. Please verify the source name is correct in the connector configuration.`)
             resolvedSources.push({
                 id: apiSource.id!,
                 name: apiSource.name!,
@@ -229,8 +239,8 @@ export class SourceService {
         const fusionSource = apiSources.find(
             (x) => (x.connectorAttributes as BaseConfig).spConnectorInstanceId === this.spConnectorInstanceId
         )
-        assert(fusionSource, 'Fusion source not found')
-        assert(fusionSource.owner, 'Fusion source owner not found')
+        assert(fusionSource, 'Fusion source not found. The connector instance could not locate its own source in ISC. Verify the connector is properly deployed.')
+        assert(fusionSource.owner, 'Fusion source owner not found. The fusion source must have an owner configured in ISC.')
         this._fusionSourceId = fusionSource.id!
         this._fusionSourceOwner = {
             id: fusionSource.owner.id!,
@@ -323,10 +333,12 @@ export class SourceService {
             filterParts.push(`(${sourceInfo.config.accountFilter})`)
         }
         const filters = filterParts.join(' and ')
+        const sorters = 'created'
 
         const requestParameters: AccountsApiListAccountsRequest = {
             filters,
             limit,
+            sorters,
         }
 
         const listAccounts = async (params: AccountsApiListAccountsRequest) => {
@@ -340,9 +352,18 @@ export class SourceService {
      */
     public async fetchFusionAccounts(): Promise<void> {
         this.log.debug('Fetching fusion accounts')
-        const accounts = await this.fetchSourceAccountsById(this.fusionSourceId)
-        this.fusionAccountsByNativeIdentity = new Map(accounts.map((account) => [account.nativeIdentity!, account]))
-        this.log.debug(`Fetched ${this.fusionAccountsByNativeIdentity.size} fusion account(s)`)
+        try {
+            const accounts = await this.fetchSourceAccountsById(this.fusionSourceId)
+            this.fusionAccountsByNativeIdentity = new Map(accounts.map((account) => [account.nativeIdentity!, account]))
+            this.log.debug(`Fetched ${this.fusionAccountsByNativeIdentity.size} fusion account(s)`)
+        } catch (error) {
+            if (error instanceof ConnectorError) throw error
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(
+                `Failed to fetch fusion accounts from the fusion source: ${detail}`,
+                ConnectorErrorType.Generic
+            )
+        }
     }
 
     /**
@@ -372,10 +393,20 @@ export class SourceService {
             return { source: s, effectiveLimit }
         })
 
-        const accountBatches = await promiseAllBatched(
-            sourcesWithLimits,
-            ({ source, effectiveLimit }) => this.fetchSourceAccountsById(source.id, effectiveLimit)
-        )
+        let accountBatches: Account[][]
+        try {
+            accountBatches = await promiseAllBatched(
+                sourcesWithLimits,
+                ({ source, effectiveLimit }) => this.fetchSourceAccountsById(source.id, effectiveLimit)
+            )
+        } catch (error) {
+            if (error instanceof ConnectorError) throw error
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(
+                `Failed to fetch managed accounts from configured sources: ${detail}`,
+                ConnectorErrorType.Generic
+            )
+        }
 
         // Update cumulative counts with actual fetched counts per source
         for (let i = 0; i < sourcesWithLimits.length; i++) {
@@ -404,7 +435,7 @@ export class SourceService {
     public async fetchFusionAccount(nativeIdentity: string): Promise<void> {
         this.log.debug('Fetching fusion account')
         const fusionAccount = await this.fetchSourceAccountByNativeIdentity(this.fusionSourceId, nativeIdentity)
-        assert(fusionAccount, 'Fusion account not found')
+        assert(fusionAccount, `Fusion account not found for native identity "${nativeIdentity}". The account may have been deleted or the identity does not exist.`)
 
         if (!this.fusionAccountsByNativeIdentity) {
             this.fusionAccountsByNativeIdentity = new Map()
@@ -552,7 +583,13 @@ export class SourceService {
             return response.data ?? []
         }
         const schemas = await this.client.execute(getSourceSchemas)
-        return schemas ?? []
+        if (!schemas) {
+            throw new ConnectorError(
+                `Failed to fetch schemas for source "${sourceId}". The API call returned no data.`,
+                ConnectorErrorType.Generic
+            )
+        }
+        return schemas
     }
 
     // ------------------------------------------------------------------------
@@ -605,7 +642,7 @@ export class SourceService {
             return response.data
         }
         const source = await this.client.execute(getSource)
-        assert(source, 'Failed to fetch fusion source')
+        assert(source, 'Failed to fetch fusion source to check processing lock. The API call returned no data.')
 
         const processing = (source!.connectorAttributes as any)?.processing
         if (processing === 'true' || processing === true) {
@@ -781,6 +818,10 @@ export class SourceService {
             return response.data
         }
         const loadAccountsTask = await this.client.execute(importAccounts)
+        if (!loadAccountsTask) {
+            this.log.warn(`Failed to trigger account aggregation for source ${id}. The API call returned no data.`)
+            return
+        }
 
         // Use global retry settings for aggregation task polling
         const taskResultRetries = this.taskResultRetries

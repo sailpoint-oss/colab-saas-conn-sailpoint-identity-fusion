@@ -10,6 +10,7 @@ import { FusionConfig } from '../../model/config'
 import { ClientService } from '../clientService'
 import { LogService } from '../logService'
 import { EmailWorkflow } from '../../model/emailWorkflow'
+import { ConnectorError, ConnectorErrorType } from '@sailpoint/connector-sdk'
 import { assert, softAssert } from '../../utils/assert'
 import { pickAttributes } from '../../utils/attributes'
 import { createUrlContext, UrlContext } from '../../utils/url'
@@ -112,8 +113,13 @@ export class MessagingService {
 
             this.log.info(`Created workflow: ${workflowName} (ID: ${this.workflow.id})`)
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             this.log.error(`Failed to create workflow: ${error}`)
-            throw new Error(`Workflow preparation failed. Unable to create workflow "${workflowName}": ${error}`)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(
+                `Workflow preparation failed. Unable to create email workflow "${workflowName}": ${detail}`,
+                ConnectorErrorType.Generic
+            )
         }
     }
 
@@ -265,7 +271,10 @@ export class MessagingService {
             await this.fetchSender()
         }
         if (!this.workflow) {
-            throw new Error('Workflow not available after preparation')
+            throw new ConnectorError(
+                'Email workflow not available. The email sender workflow could not be prepared. Check workflow configuration.',
+                ConnectorErrorType.Generic
+            )
         }
         return this.workflow
     }

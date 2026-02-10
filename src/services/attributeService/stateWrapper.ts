@@ -1,4 +1,4 @@
-import { logger } from '@sailpoint/connector-sdk'
+import { ConnectorError, ConnectorErrorType, logger } from '@sailpoint/connector-sdk'
 import { LockService } from '../lockService'
 
 // ============================================================================
@@ -54,9 +54,10 @@ export class StateWrapper {
             return await this.locks!.withLock(lockKey, async () => {
                 // Ensure counter exists (should have been initialized, but check for safety)
                 if (!this.state.has(key)) {
-                    const error = new Error(`Counter ${key} was not initialized. Call initializeCounters() first.`)
-                    logger.error(error.message)
-                    throw error
+                    throw new ConnectorError(
+                        `Counter "${key}" was not initialized. Ensure the attribute definition for "${key}" is configured and initializeCounters() has been called.`,
+                        ConnectorErrorType.Generic
+                    )
                 }
 
                 const currentValue = this.state.get(key)!
@@ -65,8 +66,9 @@ export class StateWrapper {
                 // Verify the state was actually updated
                 const verifyValue = this.state.get(key)
                 if (verifyValue !== nextValue) {
-                    throw new Error(
-                        `State update failed! Set ${key} to ${nextValue} but got ${verifyValue} when reading back`
+                    throw new ConnectorError(
+                        `Counter state update failed for "${key}": expected ${nextValue} but got ${verifyValue}. This may indicate a concurrency issue.`,
+                        ConnectorErrorType.Generic
                     )
                 }
                 logger.debug(

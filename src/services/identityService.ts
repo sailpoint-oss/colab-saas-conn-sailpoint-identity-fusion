@@ -1,4 +1,5 @@
 import { AccountsApiUpdateAccountRequest, IdentityDocument, Search } from 'sailpoint-api-client'
+import { ConnectorError, ConnectorErrorType } from '@sailpoint/connector-sdk'
 import { FusionConfig } from '../model/config'
 import { ClientService } from './clientService'
 import { LogService } from './logService'
@@ -90,11 +91,20 @@ export class IdentityService {
                 includeNested: true,
             }
 
-            const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
-            this.identitiesById = new Map(
-                identities.map((identity) => [identity.protected ? '-' : identity.id, identity])
-            )
-            this.identitiesById.delete('-')
+            try {
+                const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
+                this.identitiesById = new Map(
+                    identities.map((identity) => [identity.protected ? '-' : identity.id, identity])
+                )
+                this.identitiesById.delete('-')
+            } catch (error) {
+                if (error instanceof ConnectorError) throw error
+                const detail = error instanceof Error ? error.message : String(error)
+                throw new ConnectorError(
+                    `Failed to fetch identities using scope query "${this.identityScopeQuery}": ${detail}`,
+                    ConnectorErrorType.Generic
+                )
+            }
         } else {
             this.log.info('No identity scope query defined, skipping identity fetch.')
             this.identitiesById = new Map()
@@ -120,10 +130,18 @@ export class IdentityService {
             includeNested: true,
         }
 
-        const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
-        identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
-
-        return identities[0]
+        try {
+            const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
+            identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
+            return identities[0]
+        } catch (error) {
+            if (error instanceof ConnectorError) throw error
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(
+                `Failed to fetch identity by ID "${id}": ${detail}`,
+                ConnectorErrorType.Generic
+            )
+        }
     }
 
     /**
@@ -145,10 +163,18 @@ export class IdentityService {
             includeNested: true,
         }
 
-        const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
-        identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
-
-        return identities[0]
+        try {
+            const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
+            identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
+            return identities[0]
+        } catch (error) {
+            if (error instanceof ConnectorError) throw error
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(
+                `Failed to fetch identity by name "${name}": ${detail}`,
+                ConnectorErrorType.Generic
+            )
+        }
     }
 
     // ------------------------------------------------------------------------

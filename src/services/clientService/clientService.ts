@@ -208,8 +208,19 @@ export class ClientService {
             }
 
             return await fn()
-        } catch (error) {
-            this.log.error(`API request failed: ${error instanceof Error ? error.message : String(error)}`)
+        } catch (error: any) {
+            // Extract meaningful details from API errors (axios-style responses)
+            const status = error?.response?.status
+            const statusText = error?.response?.statusText
+            const apiMessage = error?.response?.data?.message || error?.response?.data?.detailCode
+            const baseMessage = error instanceof Error ? error.message : String(error)
+
+            let errorDetail = baseMessage
+            if (status) {
+                errorDetail = `HTTP ${status}${statusText ? ` ${statusText}` : ''}${apiMessage ? ` - ${apiMessage}` : ''}`
+            }
+
+            this.log.error(`API request failed: ${errorDetail}`)
             return undefined
         }
     }

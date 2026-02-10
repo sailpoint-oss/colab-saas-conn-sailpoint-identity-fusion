@@ -54,8 +54,10 @@ export const connector = async () => {
                     await testConnection(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError('Failed to test connection', ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to test connection: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()
@@ -88,8 +90,10 @@ export const connector = async () => {
                     await accountList(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError('Failed to aggregate accounts', ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to aggregate accounts: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()
@@ -119,8 +123,10 @@ export const connector = async () => {
                     await accountRead(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError(`Failed to read account ${input.identity}`, ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to read account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()
@@ -148,9 +154,11 @@ export const connector = async () => {
                     await accountCreate(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
+            const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(
-                `Failed to create account ${input.attributes.name ?? input.identity}`,
+                `Failed to create account ${input.attributes.name ?? input.identity}: ${detail}`,
                 ConnectorErrorType.Generic
             )
         } finally {
@@ -187,8 +195,10 @@ export const connector = async () => {
                     await accountUpdate(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError(`Failed to update account ${input.identity}`, ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to update account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()
@@ -219,8 +229,10 @@ export const connector = async () => {
                     await accountEnable(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError(`Failed to enable account ${input.identity}`, ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to enable account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()
@@ -248,8 +260,10 @@ export const connector = async () => {
                     await accountDisable(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError(`Failed to disable account ${input.identity}`, ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to disable account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()
@@ -277,8 +291,10 @@ export const connector = async () => {
                     await entitlementList(serviceRegistry, input, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError(`Failed to list entitlements for type ${input.type}`, ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to list entitlements for type ${input.type}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()
@@ -306,8 +322,10 @@ export const connector = async () => {
                     await accountDiscoverSchema(serviceRegistry, res)
             }
         } catch (error) {
+            if (error instanceof ConnectorError) throw error
             logger.error(error)
-            throw new ConnectorError('Failed to discover schema', ConnectorErrorType.Generic)
+            const detail = error instanceof Error ? error.message : String(error)
+            throw new ConnectorError(`Failed to discover schema: ${detail}`, ConnectorErrorType.Generic)
         } finally {
             await serviceRegistry?.log.flush()
             ServiceRegistry.clear()

@@ -1,5 +1,6 @@
 import Handlebars from 'handlebars'
 import type { TemplateDelegate as HandlebarsTemplateDelegate } from 'handlebars'
+import { ConnectorError, ConnectorErrorType } from '@sailpoint/connector-sdk'
 import { FUSION_REVIEW_TEMPLATE, FUSION_REPORT_TEMPLATE } from '../../model/messages'
 
 // ============================================================================
@@ -189,7 +190,7 @@ export const renderFusionReviewEmail = (
 ): string => {
     const template = templates.get('fusion-review')
     if (!template) {
-        throw new Error('Fusion review template not found')
+        throw new ConnectorError('Fusion review email template not found. Email templates may not have been compiled correctly.', ConnectorErrorType.Generic)
     }
     return template(data)
 }
@@ -203,7 +204,7 @@ export const renderEditRequestEmail = (
 ): string => {
     const template = templates.get('edit-request')
     if (!template) {
-        throw new Error('Edit request template not found')
+        throw new ConnectorError('Edit request email template not found. Email templates may not have been compiled correctly.', ConnectorErrorType.Generic)
     }
     return template(data)
 }
@@ -217,7 +218,7 @@ export const renderFusionReport = (
 ): string => {
     const template = templates.get('fusion-report')
     if (!template) {
-        throw new Error('Fusion report template not found')
+        throw new ConnectorError('Fusion report email template not found. Email templates may not have been compiled correctly.', ConnectorErrorType.Generic)
     }
     return template(data)
 }

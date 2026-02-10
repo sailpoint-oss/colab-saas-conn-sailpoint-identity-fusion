@@ -1,4 +1,4 @@
-import { Response, StdAccountEnableInput, StdAccountEnableOutput } from '@sailpoint/connector-sdk'
+import { ConnectorError, Response, StdAccountEnableInput, StdAccountEnableOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { rebuildFusionAccount } from './helpers/rebuildFusionAccount'
 import { assert } from '../utils/assert'
@@ -63,6 +63,7 @@ export const accountEnable = async (
         res.send(iscAccount)
         timer.end(`✓ Account enable completed for ${input.identity}`)
     } catch (error) {
+        if (error instanceof ConnectorError) throw error
         log.crash(`Failed to enable account ${input.identity}`, error)
     }
 }
