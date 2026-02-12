@@ -39,7 +39,7 @@ export class ScoringService {
     /**
      * Scores a fusion account against all existing fusion identities to find matches.
      * For each identity that meets the matching threshold, a {@link FusionMatch} is
-     * added to the fusion account via {@link FusionAccount.addFusionMatch}.
+     * added to the fusion account via {@link FusionAccount#addFusionMatch}.
      *
      * @param fusionAccount - The account to score (typically a new/unmatched account)
      * @param fusionIdentities - The set of existing fusion identities to compare against
@@ -123,8 +123,17 @@ export class ScoringService {
             }
         }
 
+        const identityId = fusionIdentity.identityId ?? ''
+        const identityName = String(
+            fusionIdentity.attributes?.displayName ||
+            fusionIdentity.displayName ||
+            fusionIdentity.name ||
+            'Unknown'
+        )
         const fusionMatch: FusionMatch = {
             fusionIdentity,
+            identityId,
+            identityName,
             scores,
         }
         if (isMatch) {

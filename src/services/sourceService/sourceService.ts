@@ -21,7 +21,6 @@ import { LogService } from '../logService'
 import { assert, softAssert } from '../../utils/assert'
 import { getDateFromISOString } from '../../utils/date'
 import { SourceInfo } from './types'
-import { promiseAllBatched } from '../fusionService/collections'
 
 // ============================================================================
 // SourceService Class
@@ -206,7 +205,7 @@ export class SourceService {
             const listSources = async (requestParameters?: SourcesV2025ApiListSourcesRequest) => {
                 return await sourcesApi.listSources(requestParameters)
             }
-            apiSources = await this.client.paginate(listSources)
+            apiSources = await this.client.paginate(listSources, {}, undefined, 'SourceService>fetchAllSources listSources')
         } catch (error) {
             if (error instanceof ConnectorError) throw error
             const detail = error instanceof Error ? error.message : String(error)
@@ -260,7 +259,7 @@ export class SourceService {
         this.sourcesByName = new Map(resolvedSources.map((x) => [x.name, x]))
 
         const managedCount = resolvedSources.filter((s) => s.isManaged).length
-        this.log.debug(`Fetched ${managedCount} managed source(s) and fusion source: ${fusionSource.name}`)
+        this.log.debug(`Found ${managedCount} managed source(s) and fusion source: ${fusionSource.name}`)
     }
 
     // ------------------------------------------------------------------------
@@ -322,7 +321,7 @@ export class SourceService {
     /**
      * Fetch all accounts for a given source ID, applying SourceConfig.accountFilter if present (for managed sources).
      */
-    public async fetchSourceAccountsById(sourceId: string, limit?: number): Promise<Account[]> {
+    public async fetchAccountsBySourceId(sourceId: string, limit?: number): Promise<Account[]> {
         const { accountsApi } = this.client
         const sourceInfo = this.sourcesById.get(sourceId)
         assert(sourceInfo, `Source not found for id: ${sourceId}`)
@@ -344,7 +343,8 @@ export class SourceService {
         const listAccounts = async (params: AccountsApiListAccountsRequest) => {
             return await accountsApi.listAccounts(params)
         }
-        return await this.client.paginate(listAccounts, requestParameters)
+        const ctx = `SourceService>fetchAccountsBySourceId ${sourceInfo.name}`
+        return await this.client.paginate(listAccounts, requestParameters, undefined, ctx)
     }
 
     /**
@@ -353,7 +353,7 @@ export class SourceService {
     public async fetchFusionAccounts(): Promise<void> {
         this.log.debug('Fetching fusion accounts')
         try {
-            const accounts = await this.fetchSourceAccountsById(this.fusionSourceId)
+            const accounts = await this.fetchAccountsBySourceId(this.fusionSourceId)
             this.fusionAccountsByNativeIdentity = new Map(accounts.map((account) => [account.nativeIdentity!, account]))
             this.log.debug(`Fetched ${this.fusionAccountsByNativeIdentity.size} fusion account(s)`)
         } catch (error) {
@@ -383,7 +383,7 @@ export class SourceService {
         const sourcesWithLimits = this.managedSources.map((s) => {
             const baseLimit = s.config?.accountLimit
             let effectiveLimit: number | undefined
-            if (baseLimit !== undefined) {
+            if (baseLimit) {
                 const cumulativeCount = this.batchCumulativeCount[s.name] ?? 0
                 effectiveLimit = cumulativeCount + baseLimit
                 this.log.debug(
@@ -393,12 +393,14 @@ export class SourceService {
             return { source: s, effectiveLimit }
         })
 
-        let accountBatches: Account[][]
+        const accountBatches: Account[][] = []
         try {
-            accountBatches = await promiseAllBatched(
-                sourcesWithLimits,
-                ({ source, effectiveLimit }) => this.fetchSourceAccountsById(source.id, effectiveLimit)
-            )
+            for (const { source, effectiveLimit } of sourcesWithLimits) {
+                this.log.info(`Fetching accounts from source: ${source.name}`)
+                const accounts = await this.fetchAccountsBySourceId(source.id, effectiveLimit)
+                this.log.info(`Source ${source.name}: fetched ${accounts.length} account(s)`)
+                accountBatches.push(accounts)
+            }
         } catch (error) {
             if (error instanceof ConnectorError) throw error
             const detail = error instanceof Error ? error.message : String(error)
@@ -496,13 +498,6 @@ export class SourceService {
     // ------------------------------------------------------------------------
 
     /**
-     * Aggregate a source
-     */
-    public async aggregateSourceAccounts(sourceId: string): Promise<void> {
-        await this.aggregateAccounts(sourceId)
-    }
-
-    /**
      * Aggregate all managed sources that need aggregation
      */
     public async aggregateManagedSources(): Promise<void> {
@@ -525,15 +520,15 @@ export class SourceService {
             })
         )
 
-        // Filter and aggregate sources that need aggregation
-        const aggregationPromises = aggregationChecks
-            .filter(({ shouldAggregate }) => shouldAggregate)
-            .map(({ source }) => {
-                this.log.info(`Aggregating source: ${source.name}`)
-                return this.aggregateSourceAccounts(source.id)
-            })
-
-        await Promise.all(aggregationPromises)
+        // Parallelize aggregation of sources that need aggregation
+        await Promise.all(
+            aggregationChecks
+                .filter(({ shouldAggregate }) => shouldAggregate)
+                .map(async ({ source }) => {
+                    this.log.info(`Aggregating source: ${source.name}`)
+                    await this.aggregateManagedSource(source.id)
+                })
+        )
         this.log.debug('Source aggregation completed')
     }
 
@@ -598,14 +593,20 @@ export class SourceService {
 
     /**
      * Update source configuration
+     * @param context - Optional hint for error logs (e.g. "SourceService>saveBatchCumulativeCount")
      */
-    public async patchSourceConfig(_id: string, requestParameters: SourcesV2025ApiUpdateSourceRequest): Promise<Source | undefined> {
+    public async patchSourceConfig(
+        _id: string,
+        requestParameters: SourcesV2025ApiUpdateSourceRequest,
+        context?: string
+    ): Promise<Source | undefined> {
         const { sourcesApi } = this.client
         const updateSource = async () => {
             const response = await sourcesApi.updateSource(requestParameters)
             return response.data
         }
-        return await this.client.execute(updateSource)
+        const ctx = context ?? 'SourceService>patchSourceConfig'
+        return await this.client.execute(updateSource, undefined, ctx)
     }
 
     // ------------------------------------------------------------------------
@@ -667,7 +668,7 @@ export class SourceService {
                 },
             ],
         }
-        await this.patchSourceConfig(fusionSourceId, requestParameters)
+        await this.patchSourceConfig(fusionSourceId, requestParameters, 'SourceService>setProcessLock')
     }
 
     /**
@@ -698,7 +699,7 @@ export class SourceService {
                     },
                 ],
             }
-            await this.patchSourceConfig(fusionSourceId, requestParameters)
+            await this.patchSourceConfig(fusionSourceId, requestParameters, 'SourceService>releaseProcessLock')
         } catch (error) {
             this.log.error(`Failed to release processing lock: ${error instanceof Error ? error.message : String(error)}`)
             // Don't throw here as this is typically called in cleanup
@@ -733,7 +734,7 @@ export class SourceService {
                 },
             ],
         }
-        await this.patchSourceConfig(fusionSourceId, requestParameters)
+        await this.patchSourceConfig(fusionSourceId, requestParameters, 'SourceService>saveBatchCumulativeCount')
     }
 
     /**
@@ -762,7 +763,7 @@ export class SourceService {
                 },
             ],
         }
-        await this.patchSourceConfig(fusionSourceId, requestParameters)
+        await this.patchSourceConfig(fusionSourceId, requestParameters, 'SourceService>resetBatchCumulativeCount')
     }
 
     // ------------------------------------------------------------------------
@@ -805,9 +806,9 @@ export class SourceService {
     }
 
     /**
-     * Aggregate accounts for a source
+     * Aggregate managed source
      */
-    private async aggregateAccounts(id: string): Promise<void> {
+    private async aggregateManagedSource(id: string): Promise<void> {
         let completed = false
         const { sourcesApi, taskManagementApi } = this.client
         const requestParameters: SourcesV2025ApiImportAccountsRequest = {

@@ -358,8 +358,8 @@ export class FusionAccount {
     }
 
     /** The SDK simple key used for account output. Asserts non-null. */
-    public get key(): SimpleKeyType {
-        return this._key!
+    public get key(): SimpleKeyType | undefined {
+        return this._key
     }
 
     // ============================================================================
@@ -779,6 +779,16 @@ export class FusionAccount {
     public addFusionMatch(fusionMatch: FusionMatch): void {
         this._fusionMatches.push(fusionMatch)
         this._isMatch = true
+    }
+
+    /**
+     * Clears fusionIdentity references from matches to reduce memory retention.
+     * identityId and identityName are retained for report generation.
+     */
+    public clearFusionIdentityReferences(): void {
+        for (const match of this._fusionMatches) {
+            ;(match as { fusionIdentity?: FusionAccount }).fusionIdentity = undefined
+        }
     }
 
     // ============================================================================

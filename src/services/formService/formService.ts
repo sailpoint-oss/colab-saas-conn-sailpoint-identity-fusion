@@ -899,7 +899,12 @@ export class FormService {
             }
         }
 
-        const forms = await this.client.paginate(searchFormDefinitionsByTenant, requestParameters)
+        const forms = await this.client.paginate(
+            searchFormDefinitionsByTenant,
+            requestParameters,
+            undefined,
+            'FormService>fetchFormsByName searchFormDefinitionsByTenant'
+        )
         this.log.debug(`Found ${forms.length} form(s) matching pattern: ${namePattern}`)
         return forms
     }
@@ -928,7 +933,12 @@ export class FormService {
             }
         }
 
-        const forms = await this.client.paginate(searchFormDefinitionsByTenant, requestParameters)
+        const forms = await this.client.paginate(
+            searchFormDefinitionsByTenant,
+            requestParameters,
+            undefined,
+            'FormService>findFormDefinitionByName searchFormDefinitionsByTenant'
+        )
         const form = forms.find((f) => f.name === formName)
         if (form) {
             this.log.debug(`Found existing form definition: ${form.id}`)

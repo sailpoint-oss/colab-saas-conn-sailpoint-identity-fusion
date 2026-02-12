@@ -207,6 +207,15 @@ export function last<T>(array: T[]): T | undefined {
  * @param batchSize - Maximum number of concurrent promises (default: 50)
  * @returns Array of all results in order
  */
+/**
+ * Yields to the event loop so buffered I/O (e.g. pino logger writes to stdout) can drain.
+ * The SailPoint SDK logger uses pino with async buffering; during intensive batch processing
+ * the event loop stays busy and logs accumulate. A single setImmediate tick allows flushing.
+ */
+function yieldToEventLoop(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve))
+}
+
 export async function promiseAllBatched<T, R>(
     items: T[],
     fn: (item: T) => Promise<R>,
@@ -215,7 +224,43 @@ export async function promiseAllBatched<T, R>(
     const results: R[] = []
     for (let i = 0; i < items.length; i += batchSize) {
         const batch = items.slice(i, i + batchSize)
-        results.push(...await Promise.all(batch.map(fn)))
+        results.push(...(await Promise.all(batch.map(fn))))
+        await yieldToEventLoop()
+    }
+    return results
+}
+
+/**
+ * Processes Map values in batches without materializing the full array.
+ *
+ * Memory Optimization:
+ * Avoids Array.from(map.values()) which duplicates all references in memory.
+ * For large maps (e.g. 60k+ managed accounts), this prevents a massive temporary
+ * array and reduces peak memory during processing.
+ *
+ * @param map - Map whose values to process
+ * @param fn - Async function to apply to each value
+ * @param batchSize - Maximum number of concurrent promises (default: 25)
+ * @returns Array of all results in order
+ */
+export async function promiseAllMapBatched<K, V, R>(
+    map: Map<K, V>,
+    fn: (value: V) => Promise<R>,
+    batchSize: number = 25
+): Promise<R[]> {
+    const results: R[] = []
+    let batch: V[] = []
+    for (const value of map.values()) {
+        batch.push(value)
+        if (batch.length >= batchSize) {
+            results.push(...(await Promise.all(batch.map(fn))))
+            batch = []
+            await yieldToEventLoop()
+        }
+    }
+    if (batch.length > 0) {
+        results.push(...(await Promise.all(batch.map(fn))))
+        await yieldToEventLoop()
     }
     return results
 }
@@ -236,6 +281,38 @@ export async function forEachBatched<T>(
     for (let i = 0; i < items.length; i += batchSize) {
         const batch = items.slice(i, i + batchSize)
         await Promise.all(batch.map(fn))
+        await yieldToEventLoop()
+    }
+}
+
+/**
+ * Processes Map values in batches without collecting results (fire-and-forget style).
+ *
+ * Memory Optimization:
+ * Avoids materializing a full array of map values and does not accumulate results.
+ * Use when processing has side effects and return values are not needed.
+ *
+ * @param map - Map whose values to process
+ * @param fn - Async function to apply to each value
+ * @param batchSize - Maximum number of concurrent promises (default: 25)
+ */
+export async function forEachMapBatched<K, V>(
+    map: Map<K, V>,
+    fn: (value: V) => Promise<void>,
+    batchSize: number = 25
+): Promise<void> {
+    let batch: V[] = []
+    for (const value of map.values()) {
+        batch.push(value)
+        if (batch.length >= batchSize) {
+            await Promise.all(batch.map(fn))
+            batch = []
+            await yieldToEventLoop()
+        }
+    }
+    if (batch.length > 0) {
+        await Promise.all(batch.map(fn))
+        await yieldToEventLoop()
     }
 }
 

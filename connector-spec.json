@@ -18,6 +18,7 @@
         "fusionFormExpirationDays": 7,
         "fusionAverageScore": 80,
         "provisioningTimeout": 300,
+        "managedAccountsBatchSize": 50,
         "includeIdentities": true,
         "identityScopeQuery": "*",
         "correlateOnAggregation": true,
@@ -693,6 +694,13 @@
                             "type": "toggle",
                             "required": false,
                             "helpKey": "Force the connector to rebuild accounts from scratch on the next run (use during testing or troubleshooting, use carefully in production)"
+                        },
+                        {
+                            "key": "managedAccountsBatchSize",
+                            "label": "Managed accounts batch size",
+                            "type": "number",
+                            "required": false,
+                            "helpKey": "Number of uncorrelated managed accounts to process concurrently during deduplication. Lower values (e.g. 25) reduce peak memory usage; higher values (e.g. 50) may improve throughput. Default: 50."
                         },
                         {
                             "key": "concurrencyCheckEnabled",

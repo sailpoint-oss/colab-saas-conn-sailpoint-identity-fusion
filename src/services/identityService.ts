@@ -92,7 +92,11 @@ export class IdentityService {
             }
 
             try {
-                const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
+                const identities = await this.client.paginateSearchApi<IdentityDocument>(
+                    query,
+                    undefined,
+                    'IdentityService>fetchIdentities searchPost'
+                )
                 this.identitiesById = new Map(
                     identities.map((identity) => [identity.protected ? '-' : identity.id, identity])
                 )
@@ -131,7 +135,11 @@ export class IdentityService {
         }
 
         try {
-            const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
+            const identities = await this.client.paginateSearchApi<IdentityDocument>(
+                query,
+                undefined,
+                'IdentityService>fetchIdentityById searchPost'
+            )
             identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
             return identities[0]
         } catch (error) {
@@ -164,7 +172,11 @@ export class IdentityService {
         }
 
         try {
-            const identities = await this.client.paginateSearchApi<IdentityDocument>(query)
+            const identities = await this.client.paginateSearchApi<IdentityDocument>(
+                query,
+                undefined,
+                'IdentityService>fetchIdentityByName searchPost'
+            )
             identities.forEach((identity) => this.identitiesById.set(identity.id, identity))
             return identities[0]
         } catch (error) {

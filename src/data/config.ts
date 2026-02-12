@@ -163,6 +163,7 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     // Developer Settings defaults
     // ============================================================================
     config.reset = config.reset ?? false
+    config.managedAccountsBatchSize = config.managedAccountsBatchSize ?? 50
     config.concurrencyCheckEnabled = config.concurrencyCheckEnabled ?? true
     // Default from connector-spec.json: provisioningTimeout: 300
     config.provisioningTimeout = config.provisioningTimeout ?? 300

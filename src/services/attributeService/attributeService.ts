@@ -8,7 +8,7 @@ import { LockService } from '../lockService'
 import { RenderContext } from 'velocityjs/dist/src/type'
 import { v4 as uuidv4 } from 'uuid'
 import { assert } from '../../utils/assert'
-import { SourcesV2025ApiUpdateSourceRequest } from 'sailpoint-api-client'
+import { JsonPatchOperationV2025OpV2025, SourcesV2025ApiUpdateSourceRequest } from 'sailpoint-api-client'
 import { SourceService } from '../sourceService'
 import { COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE, FUSION_STATE_CONFIG_PATH } from './constants'
 import { AttributeMappingConfig } from './types'
@@ -26,6 +26,8 @@ import { StateWrapper } from './stateWrapper'
 export class AttributeService {
     private _attributeMappingConfig?: Map<string, AttributeMappingConfig>
     private attributeDefinitionConfig: AttributeDefinition[] = []
+    // Map of attribute name -> Set of registered unique values (shared; attributeDefinitionConfig references these)
+    private uniqueValuesByAttribute: Map<string, Set<string>> = new Map()
     // O(1) lookup index for attribute definitions by name (built in constructor)
     private attributeDefinitionByName: Map<string, AttributeDefinition> = new Map()
     private stateWrapper?: StateWrapper
@@ -63,12 +65,8 @@ export class AttributeService {
         this.skipAccountsWithMissingId = config.skipAccountsWithMissingId
         this.forceAttributeRefresh = config.forceAttributeRefresh
         // Clone attribute definitions into an internal array so we never touch
-        // config.attributeDefinitions after construction, and always have a values Set.
-        this.attributeDefinitionConfig =
-            config.attributeDefinitions?.map((x) => ({
-                ...x,
-                values: new Set<string>(),
-            })) ?? []
+        // config.attributeDefinitions after construction. Unique values are stored in uniqueValuesByAttribute.
+        this.attributeDefinitionConfig = config.attributeDefinitions ? [...config.attributeDefinitions] : []
 
         // Build O(1) lookup index for getAttributeDefinition
         this.attributeDefinitionByName = new Map(
@@ -94,13 +92,15 @@ export class AttributeService {
             id: fusionSourceId,
             jsonPatchOperationV2025: [
                 {
-                    op: 'replace',
+                    // Use 'add' for upsert semantics: creates path if missing, replaces if present (RFC 6902).
+                    // 'replace' requires the path to exist and fails with 400 on first run.
+                    op: 'add' as JsonPatchOperationV2025OpV2025,
                     path: FUSION_STATE_CONFIG_PATH,
                     value: stateObject,
                 },
             ],
         }
-        await this.sourceService.patchSourceConfig(fusionSourceId, requestParameters)
+        await this.sourceService.patchSourceConfig(fusionSourceId, requestParameters, 'AttributeService>saveState')
     }
 
     /**
@@ -264,7 +264,7 @@ export class AttributeService {
      *
      * @param fusionAccount - The fusion account to refresh attributes for
      */
-    public async refreshAttributes(fusionAccount: FusionAccount): Promise<void> {
+    public async refreshAllAttributes(fusionAccount: FusionAccount): Promise<void> {
         const allDefinitions = this.attributeDefinitionConfig
         await this.applyAttributeDefinitions(fusionAccount, allDefinitions)
     }
@@ -303,9 +303,6 @@ export class AttributeService {
         if (fusionAccount.needsReset) {
             await this.unregisterUniqueAttributes(fusionAccount)
         }
-        // uniqueAttributeDefinitions.forEach((def) => {
-        //     def.refresh = true
-        // })
 
         await this.applyAttributeDefinitions(fusionAccount, uniqueAttributeDefinitions)
     }
@@ -332,15 +329,12 @@ export class AttributeService {
                 const valueStr = String(value)
                 const lockKey = `${def.type}:${def.name}`
                 await this.locks.withLock(lockKey, async () => {
-                    const defConfig = this.getAttributeDefinition(def.name)
-                    if (!defConfig || !defConfig.values) {
-                        return
-                    }
+                    const valuesSet = this.getUniqueValues(def.name)
                     if (operation === 'register') {
-                        assert(defConfig, `Attribute ${def.name} not found in attribute definition config`)
-                        defConfig.values.add(valueStr)
+                        assert(this.getAttributeDefinition(def.name), `Attribute ${def.name} not found in attribute definition config`)
+                        valuesSet.add(valueStr)
                     } else {
-                        if (defConfig.values.delete(valueStr)) {
+                        if (valuesSet.delete(valueStr)) {
                             this.log.debug(
                                 `Unregistered unique value '${valueStr}' for attribute ${def.name} (type=${def.type})`
                             )
@@ -436,6 +430,37 @@ export class AttributeService {
         return this.attributeDefinitionByName.get(name)
     }
 
+    /**
+     * Get or create the Set of registered unique values for an attribute.
+     * The Set is stored in uniqueValuesByAttribute and shared across attribute definitions.
+     */
+    private getUniqueValues(attributeName: string): Set<string> {
+        let set = this.uniqueValuesByAttribute.get(attributeName)
+        if (!set) {
+            set = new Set<string>()
+            this.uniqueValuesByAttribute.set(attributeName, set)
+        }
+        return set
+    }
+
+    /**
+     * Register an array of existing values for a unique/uuid attribute.
+     * Use when loading existing accounts or bulk-initializing to prevent duplicate value generation.
+     *
+     * @param attributeName - The attribute name (must match an attribute definition)
+     * @param values - Array of values to register as already in use
+     */
+    public registerExistingValues(attributeName: string, values: string[]): void {
+        if (values.length === 0) return
+        const set = this.getUniqueValues(attributeName)
+        for (const v of values) {
+            if (v != null && v !== '') {
+                set.add(String(v))
+            }
+        }
+        this.log.debug(`Registered ${values.length} existing value(s) for attribute '${attributeName}'`)
+    }
+
     private getStateWrapper(): StateWrapper {
         assert(this.stateWrapper, 'State wrapper is not set')
         return this.stateWrapper!
@@ -484,6 +509,9 @@ export class AttributeService {
         let value = evaluateVelocityTemplate(definition.expression, context, definition.maxLength)
         if (!value) {
             this.log.error(`Failed to evaluate velocity template for attribute ${definition.name}`)
+            return undefined
+        } else if (value === definition.expression) {
+            this.log.error(`Velocity template for attribute ${definition.name} returned the same expression`)
             return undefined
         }
 
@@ -537,7 +565,7 @@ export class AttributeService {
         const lockKey = `${definition.type}:${definition.name}`
 
         return await this.locks.withLock(lockKey, async () => {
-            const registeredValues = definition.values!
+            const registeredValues = this.getUniqueValues(definition.name)
             const counter = StateWrapper.getCounter()
             const maxAttempts = this.maxAttempts ?? 100
 
@@ -578,7 +606,7 @@ export class AttributeService {
         const lockKey = `${definition.type}:${definition.name}`
 
         return await this.locks.withLock(lockKey, async () => {
-            const registeredValues = definition.values!
+            const registeredValues = this.getUniqueValues(definition.name)
             const maxAttempts = this.maxAttempts ?? 100
 
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -651,13 +679,13 @@ export class AttributeService {
         const hasValue = fusionAccount.attributes[name] !== undefined
         const isUnique = isUniqueAttribute(definition)
 
-        // Skip if attribute exists and refresh is not requested
-        if (hasValue && !needsRefresh) {
+        // Skip if attribute is unique and exists and reset is not requested
+        if (hasValue && isUnique && !needsReset) {
             return
         }
 
-        // Skip if attribute is unique and exists and reset is not requested
-        if (hasValue && isUnique && !needsReset) {
+        // Skip if attribute exists and refresh is not requested
+        if (hasValue && !needsRefresh) {
             return
         }
 

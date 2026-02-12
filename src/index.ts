@@ -1,3 +1,9 @@
+// Raise EventEmitter listener limit before any FormData usage. The sailpoint-api-client uses
+// form-data for OAuth and multipart requests; with axios-retry, retries add error listeners
+// to the same FormData instance, exceeding the default limit of 10 (e.g. 1 + 10 retries = 11).
+import { EventEmitter } from 'events'
+EventEmitter.defaultMaxListeners = Math.max(EventEmitter.defaultMaxListeners || 0, 20)
+
 import {
     ConnectorError,
     ConnectorErrorType,
@@ -36,7 +42,7 @@ export const connector = async () => {
     const stdTest: StdTestConnectionHandler = async (context, input, res) => {
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'testConnection')
             const isCustom = context.testConnection !== undefined
             const isProxy = isProxyMode(config)
             const runMode = isCustom ? 'custom' : isProxy ? 'proxy' : 'default'
@@ -76,7 +82,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'accountList')
             logger.info(`Running accountList in ${runMode} mode`)
 
             switch (runMode) {
@@ -110,7 +116,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'accountRead')
             logger.info(`Running accountRead in ${runMode} mode`)
             switch (runMode) {
                 case 'custom':
@@ -140,7 +146,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'accountCreate')
             logger.info(`Running accountCreate in ${runMode} mode`)
 
             switch (runMode) {
@@ -181,7 +187,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'accountUpdate')
             logger.info(`Running accountUpdate in ${runMode} mode`)
 
             switch (runMode) {
@@ -215,7 +221,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'accountEnable')
             logger.info(`Running accountEnable in ${runMode} mode`)
 
             switch (runMode) {
@@ -246,7 +252,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'accountDisable')
             logger.info(`Running accountDisable in ${runMode} mode`)
 
             switch (runMode) {
@@ -277,7 +283,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'entitlementList')
             logger.info(`Running entitlementList in ${runMode} mode`)
 
             switch (runMode) {
@@ -308,7 +314,7 @@ export const connector = async () => {
 
         let serviceRegistry: ServiceRegistry | undefined
         try {
-            serviceRegistry = new ServiceRegistry(config, context)
+            serviceRegistry = new ServiceRegistry(config, context, 'accountDiscoverSchema')
             logger.info(`Running accountDiscoverSchema in ${runMode} mode`)
 
             switch (runMode) {

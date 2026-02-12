@@ -410,7 +410,11 @@ export class MessagingService {
             }
         }
 
-        const workflows = await this.client.execute(listWorkflows)
+        const workflows = await this.client.execute(
+            listWorkflows,
+            undefined,
+            'MessagingService>findWorkflowByName listWorkflows'
+        )
 
         assert(workflows, `Failed to list workflows: ${workflowName}`)
 

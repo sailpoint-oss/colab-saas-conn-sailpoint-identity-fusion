@@ -1,7 +1,8 @@
 import { ConnectorError, Response, StdAccountListInput, StdAccountListOutput } from '@sailpoint/connector-sdk'
 import { ServiceRegistry } from '../services/serviceRegistry'
-import { assert, softAssert } from '../utils/assert'
+import { softAssert } from '../utils/assert'
 import { generateReport } from './helpers/generateReport'
+import { FusionAccount } from '../model/account'
 
 /**
  * Account list operation - Main entry point for identity fusion processing.
@@ -25,6 +26,7 @@ import { generateReport } from './helpers/generateReport'
  * - Account caches cleared after output is sent
  * - Report arrays cleared after report generation (in generateReport)
  * - Conditional previous attributes (only stored for existing fusion accounts)
+ * - newNonManagedFusionAccounts drained by splice during refresh (releases refs per batch)
  *
  * Work Queue (sources.managedAccountsById):
  * - Starts with all managed accounts from all sources
@@ -38,16 +40,16 @@ export const accountList = async (
     res: Response<StdAccountListOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log, fusion, forms, identities, schemas, sources, attributes, messaging } = serviceRegistry
+    const { log, fusion, forms, identities, schemas, sources, attributes, messaging, config } = serviceRegistry
 
     let processLockAcquired = false
 
     try {
-        log.info('Starting account list operation')
+        log.info('Starting aggregation')
         const timer = log.timer()
 
         await sources.fetchAllSources()
-        log.debug(`Loaded ${sources.managedSources.length} managed source(s)`)
+        log.info(`Loaded ${sources.managedSources.length} managed source(s)`)
 
         // Set process lock to prevent concurrent aggregations.
         // Must be called after fetchAllSources (which resolves fusionSourceId).
@@ -66,16 +68,16 @@ export const accountList = async (
         }
 
         await schemas.setFusionAccountSchema(input.schema)
-        log.debug('Fusion account schema set successfully')
+        log.info('Fusion account schema set successfully')
 
         await sources.aggregateManagedSources()
-        log.debug('Managed sources aggregated')
+        log.info('Managed sources aggregated')
 
         await attributes.initializeCounters()
-        log.debug('Attribute counters initialized')
+        log.info('Attribute counters initialized')
         timer.phase('PHASE 1: Setup and initialization')
 
-        log.debug('Fetching fusion accounts, identities, managed accounts, and sender')
+        log.info('Fetching fusion accounts, identities, managed accounts, and sender')
         const fetchPromises = [
             sources.fetchFusionAccounts(),
             identities.fetchIdentities(),
@@ -97,23 +99,33 @@ export const accountList = async (
         timer.phase('PHASE 2: Fetching data in parallel')
 
         await forms.fetchFormData()
-        log.debug('Form data loaded')
+        log.info('Form data loaded')
 
-        log.debug('Step 3.1: Processing existing fusion accounts')
+        log.info('Step 3.1: Processing existing fusion accounts')
         await fusion.processFusionAccounts()
 
-        log.debug('Step 3.2: Processing identities')
-        await fusion.processIdentities()
+        const newNonManagedFusionAccounts: FusionAccount[] = []
+        log.info('Step 3.2: Processing identities')
+        newNonManagedFusionAccounts.push(...await fusion.processIdentities())
 
         // Memory optimization: identities are no longer needed past this point
         identities.clear()
-        log.debug('Identities cache cleared from memory')
+        log.info('Identities cache cleared from memory')
 
-        log.debug('Step 3.3: Processing fusion identity decisions')
-        await fusion.processFusionIdentityDecisions()
+        log.info('Step 3.3: Processing fusion identity decisions')
+        newNonManagedFusionAccounts.push(...await fusion.processFusionIdentityDecisions())
 
-        log.debug('Step 3.4: Processing managed accounts (deduplication)')
+        log.info('Step 3.4: Processing managed accounts (deduplication)')
         await fusion.processManagedAccounts()
+
+        log.info('Step 3.5: Refresh non-managed accounts unique attributes')
+        // Memory: splice drains the array so refs are released per batch; bounded concurrency
+        const refreshBatchSize = config.managedAccountsBatchSize ?? 50
+        while (newNonManagedFusionAccounts.length > 0) {
+            const batch = newNonManagedFusionAccounts.splice(0, refreshBatchSize)
+            await Promise.all(batch.map((account) => attributes.refreshUniqueAttributes(account)))
+        }
+
         log.info(`Work queue processing complete - ${sources.managedAccountsById.size} unprocessed account(s) remaining`)
         timer.phase('PHASE 3: Work queue depletion - processing accounts')
 
@@ -130,28 +142,26 @@ export const accountList = async (
         // generateReport() clears them internally, but if reporting is disabled they would
         // persist for the lifetime of the operation.
         fusion.clearAnalyzedAccounts()
-
-        const accounts = await fusion.listISCAccounts()
-        assert(accounts, 'Failed to list ISC accounts')
-        log.info(`Sending ${accounts.length} account(s) to platform`)
-        accounts.forEach((x) => res.send(x))
-        timer.phase('PHASE 5: Finalizing and sending accounts')
-
+        sources.clearManagedAccounts()
         await forms.cleanUpForms()
-        log.debug('Form cleanup completed')
+        log.info('Form cleanup completed')
 
         await attributes.saveState()
-        log.debug('Attribute state saved')
+        log.info('Attribute state saved')
 
         await sources.saveBatchCumulativeCount()
-        log.debug('Batch cumulative count saved')
+        log.info('Batch cumulative count saved')
+        timer.phase('PHASE 5: Saving state and clearing memory')
 
-        // Memory optimization: accounts have been sent and are no longer needed
-        sources.clearManagedAccounts()
+        log.info('Sending accounts to platform')
+        const count = await fusion.forEachISCAccount((account) => res.send(account))
+        log.info(`Sent ${count} account(s) to platform`)
+        timer.phase('PHASE 6: Finalizing and sending accounts')
+
         sources.clearFusionAccounts()
-        log.debug('Account caches cleared from memory')
+        log.info('Account caches cleared from memory')
 
-        timer.end(`✓ Account list operation completed successfully - ${accounts.length} account(s) processed`)
+        timer.end(`✓ Account list operation completed successfully - ${count} account(s) processed`)
     } catch (error) {
         if (error instanceof ConnectorError) throw error
         log.crash('Failed to list accounts', error)

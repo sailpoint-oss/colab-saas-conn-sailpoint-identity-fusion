@@ -28,19 +28,23 @@ export const accountEnable = async (
     res: Response<StdAccountEnableOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log, fusion, sources, schemas } = serviceRegistry
+    const { log, fusion, sources, schemas, attributes } = serviceRegistry
 
     try {
         log.info(`Enabling account: ${input.identity}`)
         assert(input.identity, 'Account identity is required')
         const timer = log.timer()
 
+        await attributes.initializeCounters()
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
         timer.phase('Step 1: Loading sources and schema', 'debug')
 
         await sources.fetchFusionAccounts()
-        await fusion.preProcessFusionAccounts()
+        const fusionAccounts = await fusion.preProcessFusionAccounts()
+        for (const fusionAccount of fusionAccounts) {
+            await attributes.registerUniqueAttributes(fusionAccount)
+        }
         timer.phase('Step 2: Pre-processing all fusion accounts to collect unique values', 'debug')
 
         const attributeOperations: AttributeOperations = {

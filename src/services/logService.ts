@@ -22,6 +22,8 @@ type LogConfig = {
     externalLoggingEnabled?: boolean
     externalLoggingUrl?: string
     externalLoggingLevel?: LogLevel
+    /** Optional operation name for log attribution, e.g. "accountList" */
+    operationContext?: string
 }
 
 
@@ -74,8 +76,17 @@ export function getCallerInfo(skipFrames: number = 2): { origin: string; isOpera
             'InMemoryLockService', 'ApiQueue',
         ])
 
+        // Node.js runtime internals - skip entirely (do not use as fallback).
+        // When log calls run inside async callbacks, the stack often shows
+        // process.processTicksAndRejections etc.; we must walk past these
+        // to find the actual service/method (e.g. accountCreate, FusionService.processFusionAccount).
+        const RUNTIME_INTERNALS = new Set([
+            'process', 'internal', 'node',
+            'AsyncLocalStorage', 'AsyncResource',
+        ])
+
         // --- Pass 1: find the first ClassName.methodName (most specific) ---
-        // Skip infrastructure classes to find the real business caller.
+        // Skip infrastructure and runtime internals to find the real business caller.
         let firstInfraOrigin: string | undefined
         for (let i = startIdx; i <= maxIdx; i++) {
             const line = lines[i]
@@ -86,15 +97,16 @@ export function getCallerInfo(skipFrames: number = 2): { origin: string; isOpera
                 const className = classMethodMatch[1]
                 const methodName = classMethodMatch[2]
 
+                if (RUNTIME_INTERNALS.has(className)) {
+                    continue
+                }
                 if (INFRASTRUCTURE_CLASSES.has(className)) {
-                    // Remember the first infra origin as a fallback
                     if (!firstInfraOrigin) {
                         firstInfraOrigin = `${className}>${methodName}`
                     }
                     continue
                 }
 
-                // Found a real business class
                 return {
                     origin: `${className}>${methodName}`,
                     isOperation: false,
@@ -202,6 +214,8 @@ export class PhaseTimer {
 export class LogService {
     private logger: Logger
     private configuredLevel: LogLevel
+    /** Operation name for log attribution (e.g. accountList, accountCreate) */
+    private operationContext?: string
     // External logging settings
     private externalLoggingEnabled: boolean
     private externalLoggingUrl?: string
@@ -228,6 +242,7 @@ export class LogService {
         this.externalLoggingEnabled = config.externalLoggingEnabled ?? false
         this.externalLoggingUrl = config.externalLoggingUrl
         this.externalLoggingLevel = config.externalLoggingLevel ?? 'error'
+        this.operationContext = config.operationContext
 
         // Also set the underlying logger level
         logger.level = this.configuredLevel
@@ -280,8 +295,10 @@ export class LogService {
         // Build the log message with padding (no colors - log server handles that)
         const paddedLevel = this.padLogLevel(level)
         const fn = origin || 'unknown'
-        
-        let logMessage = `${timestamp} ${paddedLevel} ${fn}: ${message}`
+        const opPrefix = this.operationContext ? `[${this.operationContext}] ` : ''
+        // When run from an operation, operation tag is sufficient; omit origin to avoid redundancy
+        const originPart = this.operationContext ? '' : `${fn}: `
+        let logMessage = `${timestamp} ${paddedLevel} ${opPrefix}${originPart}${message}`
 
         // Append data if present
         if (data !== undefined && data !== null) {
@@ -334,27 +351,30 @@ export class LogService {
         origin?: string
     ): string {
         const fn = origin || 'unknown'
+        const prefix = this.operationContext ? `[${this.operationContext}] ` : ''
+        // When run from an operation, operation tag is sufficient; omit origin to avoid redundancy
+        const originPart = this.operationContext ? '' : `${fn}: `
 
         if (data === undefined || data === null) {
-            return `${fn}: ${message}`
+            return `${prefix}${originPart}${message}`
         }
 
         // Handle Error objects
         if (data instanceof Error) {
-            return `${fn}: ${message} [Error: ${data.name}: ${data.message}${data.stack ? ' | Stack: ' + data.stack : ''}]`
+            return `${prefix}${originPart}${message} [Error: ${data.name}: ${data.message}${data.stack ? ' | Stack: ' + data.stack : ''}]`
         }
 
         // Handle primitives (string, number, boolean, bigint, symbol)
         if (['string', 'number', 'boolean', 'bigint', 'symbol'].includes(typeof data)) {
-            return `${fn}: ${message} ${String(data)}`
+            return `${prefix}${originPart}${message} ${String(data)}`
         }
 
         // Handle objects and arrays
         try {
-            return `${fn}: ${message} ${JSON.stringify(data)}`
+            return `${prefix}${originPart}${message} ${JSON.stringify(data)}`
         } catch (e) {
             // If data is not serializable
-            return `${fn}: ${message} [Unserializable data: ${JSON.stringify(data)}] ${e}`
+            return `${prefix}${originPart}${message} [Unserializable data: ${JSON.stringify(data)}] ${e}`
         }
     }
 

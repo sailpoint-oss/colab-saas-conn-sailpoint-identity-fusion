@@ -199,6 +199,12 @@ export interface FusionSettingsMenu extends MatchingSettingsSection, ReviewSetti
 export interface DeveloperSettingsSection {
     reset: boolean
     /**
+     * Batch size for processing uncorrelated managed accounts during deduplication.
+     * Lower values reduce peak memory usage; higher values may improve throughput.
+     * Default: 50.
+     */
+    managedAccountsBatchSize?: number
+    /**
      * Enable the concurrency check that prevents concurrent account aggregations.
      * When enabled, a processing lock is set on the source at the start of each
      * aggregation. If the lock is already active (from a prior incomplete run or

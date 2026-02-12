@@ -18,7 +18,7 @@ export class InMemoryLockService implements LockService {
     constructor(private log: LogService) {}
 
     async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-        this.log.debug(`Acquiring lock for key: ${key}`)
+        // this.log.debug(`Acquiring lock for key: ${key}`)
 
         // Create our promise that will be resolved when we're done
         let resolveNext: (value: unknown) => void
@@ -40,13 +40,13 @@ export class InMemoryLockService implements LockService {
         // This serializes all tasks for this key - only one can proceed past here
         await prev
 
-        this.log.debug(`Lock acquired for key: ${key}`)
+        // this.log.debug(`Lock acquired for key: ${key}`)
 
         try {
             // CRITICAL SECTION: Only one task can be here at a time per key
             // All state modifications must happen here - this is serialized by the await above
             const result = await fn()
-            this.log.debug(`Lock released for key (success): ${key}`)
+            // this.log.debug(`Lock released for key (success): ${key}`)
             return result
         } catch (error) {
             this.log.error?.(`Error in lock-protected function for key "${key}": ${(error as Error).message}`)

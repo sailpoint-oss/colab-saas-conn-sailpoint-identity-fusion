@@ -51,9 +51,11 @@ export const accountCreate = async (
         assert(identity, `Identity not found: ${identityName}`)
         assert(identity.id, `Identity ID is missing for: ${identityName}`)
 
+        await fusion.processIdentities()
         const fusionIdentity = fusion.getFusionIdentity(identity.id)
         assert(fusionIdentity, `Fusion identity not found for identity ID: ${identity.id}`)
         log.debug(`Found fusion identity: ${fusionIdentity.nativeIdentity}`)
+        await attributes.refreshUniqueAttributes(fusionIdentity)
         timer.phase('Step 2: Fetching identity information', 'debug')
 
         const actions = [...(input.attributes.actions ?? [])]

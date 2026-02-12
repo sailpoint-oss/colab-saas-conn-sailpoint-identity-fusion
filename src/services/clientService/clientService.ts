@@ -1,3 +1,4 @@
+import FormData from 'form-data'
 import { ApiQueue } from './queue'
 import { QueueConfig, QueuePriority, QueueStats } from './types'
 import { LogService } from '../logService'
@@ -5,7 +6,7 @@ import { FusionConfig } from '../../model/config'
 import {
     Configuration,
     Search,
-    AccountsApi,
+    AccountsV2025Api,
     IdentitiesV2025Api,
     CustomFormsV2025Api,
     EntitlementsV2025Api,
@@ -38,7 +39,7 @@ export class ClientService {
     private readonly requestTimeoutMs?: number
 
     // Lazy-loaded API instances
-    private _accountsApi?: AccountsApi
+    private _accountsApi?: AccountsV2025Api
     private _identitiesApi?: IdentitiesV2025Api
     private _searchApi?: SearchApi
     private _sourcesApi?: SourcesV2025Api
@@ -64,6 +65,14 @@ export class ClientService {
         const retriesConfig = createRetriesConfig(maxRetries)
         this.config = new Configuration({ ...fusionConfig, tokenUrl })
         this.config.retriesConfig = retriesConfig
+        // form-data extends EventEmitter; with axios-retry, retries add error listeners to the same
+        // FormData instance. Set formDataCtor so multipart API calls create instances with higher limit.
+        this.config.formDataCtor = class extends FormData {
+            constructor() {
+                super()
+                if (typeof this.setMaxListeners === 'function') this.setMaxListeners(25)
+            }
+        }
 
         // Apply a hard timeout at the client layer to avoid indefinite hangs.
         // Use provisioningTimeout (seconds) as the global per-request timeout.
@@ -82,7 +91,7 @@ export class ClientService {
             const maxConcurrentRequests = fusionConfig.maxConcurrentRequests ?? Math.max(10, requestsPerSecond * 2)
 
             const queueConfig: QueueConfig = {
-                requestsPerSecond: fusionConfig.requestsPerSecond ?? 10,
+                requestsPerSecond,
                 maxConcurrentRequests,
                 maxRetries: enableRetry ? maxRetries : 0,
                 // Retry delay is calculated from HTTP 429 retry-after header (with jitter) or exponential backoff with 1s base
@@ -91,12 +100,12 @@ export class ClientService {
             this.queue = new ApiQueue(queueConfig)
             this.startStatsLogging()
             this.log.info(
-                `ClientService initialized with queue: ${queueConfig.requestsPerSecond} req/s, ` +
-                `max concurrent: ${queueConfig.maxConcurrentRequests}, max retries: ${queueConfig.maxRetries}`
+                `API client ready: queue ${queueConfig.requestsPerSecond} req/s, ` +
+                `max concurrent: ${queueConfig.maxConcurrentRequests}, retries: ${queueConfig.maxRetries}`
             )
         } else {
             this.queue = null
-            this.log.info('ClientService initialized with queue disabled (direct API calls)')
+            this.log.info('API client ready (direct calls, no queue)')
         }
     }
 
@@ -104,9 +113,9 @@ export class ClientService {
     // API Instance Getters (Lazy Initialization)
     // -------------------------------------------------------------------------
 
-    public get accountsApi(): AccountsApi {
+    public get accountsApi(): AccountsV2025Api {
         if (!this._accountsApi) {
-            this._accountsApi = new AccountsApi(this.config)
+            this._accountsApi = new AccountsV2025Api(this.config)
         }
         return this._accountsApi
     }
@@ -182,10 +191,15 @@ export class ClientService {
      * Execute a single API function, optionally through the queue depending on configuration.
      * Returns the result directly as returned by the function (queue preserves the return type).
      * Returns undefined and logs the error if the API call fails.
+     *
+     * @param apiFunction - Async function that performs the API call
+     * @param priority - Queue priority when queue is enabled
+     * @param context - Optional hint for error logs (e.g. "SourceService>saveBatchCumulativeCount")
      */
     public async execute<TResponse>(
         apiFunction: () => Promise<TResponse>,
-        priority: QueuePriority = QueuePriority.NORMAL
+        priority: QueuePriority = QueuePriority.NORMAL,
+        context?: string
     ): Promise<TResponse | undefined> {
         const fn = () => {
             if (!this.requestTimeoutMs) {
@@ -220,7 +234,8 @@ export class ClientService {
                 errorDetail = `HTTP ${status}${statusText ? ` ${statusText}` : ''}${apiMessage ? ` - ${apiMessage}` : ''}`
             }
 
-            this.log.error(`API request failed: ${errorDetail}`)
+            const contextHint = context ? ` (${context})` : ''
+            this.log.error(`API request failed${contextHint}: ${errorDetail}`)
             return undefined
         }
     }
@@ -235,6 +250,7 @@ export class ClientService {
      * @param callFunction - Function that accepts request parameters and returns a promise with { data: T[] }
      * @param baseParameters - Base request parameters (filters, etc.) that will be merged with pagination params
      * @param priority - Optional priority for the page requests (default: NORMAL, only used if queue is enabled)
+     * @param context - Optional hint for error logs to identify which API call failed (e.g. "listSources")
      * @returns Promise resolving to all paginated data
      *
      * @example
@@ -248,33 +264,38 @@ export class ClientService {
     public async paginate<T, TRequestParams = any>(
         callFunction: (requestParameters: TRequestParams) => Promise<{ data: T[] }>,
         baseParameters: Partial<TRequestParams> = {},
-        priority: QueuePriority = QueuePriority.NORMAL
+        priority: QueuePriority = QueuePriority.NORMAL,
+        context?: string
     ): Promise<T[]> {
-        const pageSize = this.pageSize // Paging size is driven by config
+        const pageSize = this.pageSize
+        // SailPoint list endpoints (e.g. list-accounts) max 250/request; always pass explicit limit
+        // to avoid API-default behavior that can stop pagination early (e.g. cap at 500).
+        const SAILPOINT_LIST_MAX = 250
+        const effectivePageSize = Math.min(pageSize, SAILPOINT_LIST_MAX)
+
         const allItems: T[] = []
-        // If limit is undefined, treat it as "no limit" and paginate through all results
         const baseLimit = (baseParameters as any).limit
         const hasExplicitLimit = baseLimit !== undefined && baseLimit !== null
-        const initialLimit = hasExplicitLimit && baseLimit < pageSize ? baseLimit : pageSize
+        const initialLimit = hasExplicitLimit && baseLimit < effectivePageSize ? baseLimit : effectivePageSize
 
-        // Build initial params
+        // Build initial params - always pass explicit limit for consistent pagination
         const initialParams = {
             ...baseParameters,
             limit: initialLimit,
             offset: 0,
         } as TRequestParams
-        // Remove limit if it was undefined to let API return all results on first page (if supported)
-        if (!hasExplicitLimit) {
-            delete (initialParams as any).limit
-        }
 
-        const initialResponse = await this.execute<{ data: T[] }>(() => callFunction(initialParams), priority)
+        const initialResponse = await this.execute<{ data: T[] }>(
+            () => callFunction(initialParams),
+            priority,
+            context ? `${context} [page 1, offset 0]` : 'list [page 1, offset 0]'
+        )
         const initialPage = initialResponse?.data || []
         allItems.push(...initialPage)
 
-        // If the first page is smaller than pageSize, we already have all data
+        // If the first page is smaller than requested, we already have all data
         // Or if we have an explicit limit and we've reached it
-        if (initialPage.length < pageSize || (hasExplicitLimit && allItems.length >= baseLimit)) {
+        if (initialPage.length < initialLimit || (hasExplicitLimit && allItems.length >= baseLimit)) {
             // If we have an explicit limit, trim to that limit
             if (hasExplicitLimit && allItems.length > baseLimit) {
                 return allItems.slice(0, baseLimit)
@@ -299,20 +320,23 @@ export class ClientService {
 
             // Calculate how many items we still need
             const remainingLimit = hasExplicitLimit ? baseLimit - allItems.length : undefined
-            const requestLimit = remainingLimit !== undefined && remainingLimit < pageSize ? remainingLimit : pageSize
+            const requestLimit =
+                remainingLimit !== undefined && remainingLimit < effectivePageSize
+                    ? remainingLimit
+                    : effectivePageSize
 
-            // Build page params
+            // Build page params - always pass explicit limit for consistent pagination
             const pageParams = {
                 ...baseParameters,
                 limit: requestLimit,
                 offset,
             } as TRequestParams
-            // Remove limit if it was undefined in base parameters
-            if (!hasExplicitLimit) {
-                delete (pageParams as any).limit
-            }
 
-            const pageResponse = await this.execute<{ data: T[] }>(() => callFunction(pageParams), priority)
+            const pageResponse = await this.execute<{ data: T[] }>(
+                () => callFunction(pageParams),
+                priority,
+                context ? `${context} [page, offset ${offset}]` : `list [page, offset ${offset}]`
+            )
             const pageData = pageResponse?.data || []
 
             // If we get an empty page, we've reached the end
@@ -349,6 +373,7 @@ export class ClientService {
      *
      * @param search - The search object
      * @param priority - Optional priority for the page requests (default: NORMAL, only used if queue is enabled)
+     * @param context - Optional hint for error logs to identify which API call failed
      * @returns Promise resolving to all paginated data
      *
      * @example
@@ -360,7 +385,11 @@ export class ClientService {
      * const identities = await client.paginateSearchApi<IdentityDocument>(search)
      * ```
      */
-    public async paginateSearchApi<T>(search: Search, priority: QueuePriority = QueuePriority.NORMAL): Promise<T[]> {
+    public async paginateSearchApi<T>(
+        search: Search,
+        priority: QueuePriority = QueuePriority.NORMAL,
+        context?: string
+    ): Promise<T[]> {
         const pageSize = this.pageSize
         const allItems: T[] = []
 
@@ -373,8 +402,10 @@ export class ClientService {
         let searchAfter: any[] | undefined
         let isFirstPage = true
         let hasMore = true
+        let pageNum = 1
 
         while (hasMore) {
+            const pageContext = context ? `${context} [page ${pageNum}]` : `search [page ${pageNum}]`
             const response = await this.execute<any>(
                 () =>
                     this.searchApi.searchPost({
@@ -383,7 +414,8 @@ export class ClientService {
                         // Use count=true only on the first request to populate X-Total-Count
                         count: isFirstPage ? true : undefined,
                     }),
-                priority
+                priority,
+                pageContext
             )
             const items = ((response?.data as T[]) || []) as T[]
             allItems.push(...items)
@@ -402,6 +434,7 @@ export class ClientService {
             }
 
             isFirstPage = false
+            pageNum += 1
         }
 
         return allItems

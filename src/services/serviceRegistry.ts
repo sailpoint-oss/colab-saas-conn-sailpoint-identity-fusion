@@ -42,13 +42,16 @@ export class ServiceRegistry {
      *
      * @param config - The resolved fusion configuration
      * @param context - SDK context, optionally providing pre-built service overrides
+     * @param operationContext - Optional operation name for log attribution (e.g. "accountList")
      */
     constructor(
         public config: FusionConfig,
-        context: Context
+        context: Context,
+        operationContext?: string
     ) {
         // Initialize core services first
-        this.log = context.logService ?? new LogService(this.config)
+        const logConfig = operationContext ? { ...config, operationContext } : config
+        this.log = context.logService ?? new LogService(logConfig)
         this.locks = context.lockService ?? new InMemoryLockService(this.log)
         this.client = context.connectionService ?? new ClientService(this.config, this.log)
 

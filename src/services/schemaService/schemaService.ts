@@ -238,7 +238,7 @@ export class SchemaService {
             .map((x) => {
                 return {
                     name: x.name!,
-                    description: x.expression ? `Created from expression: ${x.expression}` : '',
+                    description: x.expression ? `Created from expression: ${x.expression.replace(/\n/g, '')}` : '',
                     type: 'string',
                     multi: false,
                     entitlement: false,
