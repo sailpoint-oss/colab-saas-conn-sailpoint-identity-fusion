@@ -249,8 +249,32 @@ export function toSetFromAttribute(
     attributes: Record<string, any> | null | undefined,
     key: string
 ): Set<string> {
-    const value = attributes?.[key]
-    return new Set((Array.isArray(value) ? value : []) as string[])
+    const raw = attributes?.[key]
+    const arr = Array.isArray(raw) ? raw : []
+
+    // Normalize common ISC representations:
+    // - string[] (plain multi-valued attributes)
+    // - { id: string }[] (entitlement references often come back as objects)
+    // - { value: string }[] / { name: string }[] (other SDK shapes)
+    const normalized: string[] = []
+    for (const item of arr) {
+        if (item == null) continue
+        if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+            normalized.push(String(item))
+            continue
+        }
+        if (typeof item === 'object') {
+            const id = (item as any).id
+            const value = (item as any).value
+            const name = (item as any).name
+            const pick = id ?? value ?? name
+            if (pick != null && pick !== '') {
+                normalized.push(String(pick))
+            }
+        }
+    }
+
+    return new Set(normalized)
 }
 
 // ============================================================================

@@ -295,6 +295,7 @@ export class FusionAccount {
         fusionAccount._originSource = account.sourceName ?? undefined
         fusionAccount.setUncorrelated()
         fusionAccount.setUncorrelatedAccount(account.id!)
+        fusionAccount.setManagedAccount(account)
         fusionAccount.setNeedsReset(true)
         return fusionAccount
     }
@@ -787,7 +788,7 @@ export class FusionAccount {
      */
     public clearFusionIdentityReferences(): void {
         for (const match of this._fusionMatches) {
-            ;(match as { fusionIdentity?: FusionAccount }).fusionIdentity = undefined
+            ; (match as { fusionIdentity?: FusionAccount }).fusionIdentity = undefined
         }
     }
 

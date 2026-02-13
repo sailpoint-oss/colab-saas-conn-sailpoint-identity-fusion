@@ -237,11 +237,13 @@ export interface AdvancedConnectionSettingsSection {
 
     /**
      * The number of times to retry a failed API request.
+     * Only used when retry is enabled. Configured in Advanced Connection Settings.
      */
     maxRetries?: number
 
     /**
-     * Maximum number of requests to send per second.
+     * Maximum number of requests to send per second (throttling).
+     * Only used when queue is enabled. Configured in Advanced Connection Settings.
      */
     requestsPerSecond?: number
 
@@ -252,8 +254,10 @@ export interface AdvancedConnectionSettingsSection {
     maxConcurrentRequests?: number
 
     /**
-     * Wait time (in milliseconds) for processing operations.
-     * Reserved for future scheduling features.
+     * Interval (in milliseconds) between keep-alive signals sent to the platform
+     * during long-running account list and account update operations. Configured in
+     * seconds in the connector UI; converted to milliseconds internally. Lower values
+     * reduce timeout risk; higher values reduce keep-alive traffic.
      */
     processingWait?: number
 

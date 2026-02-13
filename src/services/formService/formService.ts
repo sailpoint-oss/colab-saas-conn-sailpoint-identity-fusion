@@ -92,12 +92,10 @@ export class FormService {
             })
         )
 
-        // Build pending (unanswered) instance URLs by reviewer so reviewers can be updated later.
-        for (const instances of formInstancesResults) {
-            this.collectPendingReviewUrlsByReviewer(instances)
-        }
-
-        // Process all instances sequentially to avoid race conditions when modifying shared state
+        // Process all instances (single pass) to:
+        // - extract assignment/new-identity decisions
+        // - collect pending review URLs + pending candidate IDs
+        // - queue resolved/orphaned forms for deletion
         // (fetching was done in parallel above, processing is fast so sequential is fine)
         for (const instances of formInstancesResults) {
             if (instances.length > 0) {
@@ -161,6 +159,15 @@ export class FormService {
                 candidates,
                 existingRecipientIds
             )
+
+            // Register candidate IDs from this newly-created form so that
+            // reconcilePendingFormState can mark them as candidates even though
+            // fetchFormData (which populates pendingCandidateIdentityIds) already ran.
+            for (const candidate of candidates) {
+                if (candidate.id) {
+                    this._pendingCandidateIdentityIds.add(candidate.id)
+                }
+            }
         }
     }
 
@@ -256,9 +263,10 @@ export class FormService {
         reviewers: Set<FusionAccount>
     ): void {
         for (const instance of existingInstances) {
-            if (!instance.recipients || !instance.standAloneFormUrl) {
-                continue
-            }
+            if (!instance.state || !instance.recipients || !instance.standAloneFormUrl) continue
+            const state = instance.state.toUpperCase()
+            // Only pending instances should show up as active reviews on reviewer accounts.
+            if (state === 'COMPLETED' || state === 'IN_PROGRESS' || state === 'CANCELLED') continue
 
             for (const recipient of instance.recipients) {
                 if (!recipient.id) {
@@ -570,7 +578,12 @@ export class FormService {
             accountInfoOverride
         )
 
-        if (processingResult.shouldDeleteForm && processingResult.formDefinitionId) {
+        // Only active (non-deleted) forms should contribute pending review URLs and candidate IDs.
+        // A resolved/orphaned form may still have "pending" instances for other reviewers, but those
+        // should not be treated as active reviews/candidates once the form is no longer actionable.
+        if (!processingResult.shouldDeleteForm) {
+            this.collectPendingReviewUrlsByReviewer(formInstances)
+        } else if (processingResult.formDefinitionId) {
             this.addFormToDelete(processingResult.formDefinitionId)
         }
 

@@ -213,7 +213,7 @@ Fine-tuning for API behavior, resilience, debugging, and proxy mode.
 | **Enable queue?**                  | Enable queue management for API requests       | No                               | Enables rate limiting and concurrency control                                     |
 | **Maximum concurrent requests**    | Maximum simultaneous API requests              | No (required when queue enabled) | Default: 10; adjust based on API capacity and tenant limits                       |
 | **Enable retry?**                  | Enable automatic retry for failed API requests | No                               | Recommended for production; handles transient failures                            |
-| **Processing wait time (seconds)** | Reserved for future use                        | Yes                              | Default: 60; not used for tuning—reserved for future scheduling features          |
+| **Processing wait time (seconds)** | Interval between keep-alive signals during long-running operations | Yes | Default: 60; used for account list and account update to prevent timeouts |
 | **Retry delay (milliseconds)**     | Base delay between retry attempts              | Yes                              | Default: 1000; for HTTP 429, uses `Retry-After` header when present               |
 | **Enable batching?**               | Group requests in queue for better throughput  | No                               | Can improve efficiency for bulk operations                                        |
 | **Batch size**                     | Requests per batch                             | Yes (when batching enabled)      | Default: 250; adjust based on operation type and payload size                     |

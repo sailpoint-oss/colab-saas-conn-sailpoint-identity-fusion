@@ -159,7 +159,7 @@ Advanced Connection Settings control API behavior, resilience, and performance.
 | Field | Default | Range | Purpose |
 |-------|---------|-------|---------|
 | **Provisioning timeout (seconds)** | 300 | 60–3600 | Max wait for provisioning operations (enable/disable, create/update) |
-| **Processing wait time (seconds)** | 60 | 0–600 | Reserved for future scheduling features; currently a constant |
+| **Processing wait time (seconds)** | 60 | 0–600 | Interval between keep-alive signals during account list and account update; prevents timeouts on long-running operations |
 
 **Provisioning timeout tuning:**
 

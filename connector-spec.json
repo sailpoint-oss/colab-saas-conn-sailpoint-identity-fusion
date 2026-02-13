@@ -27,8 +27,8 @@
         "enableQueue": true,
         "enableRetry": true,
         "maxRetries": 20,
-        "requestsPerSecond": 10,
-        "maxConcurrentRequests": 10,
+        "requestsPerSecond": 8,
+        "maxConcurrentRequests": 8,
         "taskResultRetries": 5,
         "taskResultWait": 1,
         "processingWait": 60,
@@ -59,7 +59,7 @@
                 {
                     "type": "section",
                     "sectionTitle": "Connection Settings",
-                    "sectionHelpMessage": "<strong>Configure how this connector connects to Identity Security Cloud.</strong><br><br>Use <strong>Identity Security Cloud API URL</strong> to specify the base URL of your ISC tenant (for example, <code>https://tenant.api.identitynow.com</code>).<br><br>Provide the <strong>Personal Access Token ID</strong> and <strong>Personal Access Token Secret</strong> for an account that has the required API permissions. These values are used to authenticate all connector operations.<br><br>Configure <strong>API request retries</strong> to set the maximum number of retry attempts for failed API requests. Use <strong>Requests per second</strong> to control the rate limiting and throttling of API requests to avoid overwhelming the Identity Security Cloud API.",
+                    "sectionHelpMessage": "<strong>Configure how this connector connects to Identity Security Cloud.</strong><br><br>Use <strong>Identity Security Cloud API URL</strong> to specify the base URL of your ISC tenant (for example, <code>https://tenant.api.identitynow.com</code>).<br><br>Provide the <strong>Personal Access Token ID</strong> and <strong>Personal Access Token Secret</strong> for an account that has the required API permissions. These values are used to authenticate all connector operations.",
                     "items": [
                         {
                             "key": "baseurl",
@@ -81,26 +81,6 @@
                             "type": "secret",
                             "required": true,
                             "helpKey": "Personal Access Token secret for authentication"
-                        },
-                        {
-                            "key": "maxRetries",
-                            "label": "API request retries",
-                            "type": "number",
-                            "required": false,
-                            "min": "0",
-                            "parentKey": "enableRetry",
-                            "parentValue": "true",
-                            "helpKey": "Maximum number of retry attempts for failed API requests (only used when retry is enabled)"
-                        },
-                        {
-                            "key": "requestsPerSecond",
-                            "label": "Requests per second",
-                            "type": "number",
-                            "required": false,
-                            "min": "1",
-                            "parentKey": "enableQueue",
-                            "parentValue": "true",
-                            "helpKey": "Maximum number of API requests per second (throttling, only used when queue is enabled)"
                         }
                     ]
                 }
@@ -757,7 +737,7 @@
                 {
                     "type": "section",
                     "sectionTitle": "Advanced Connection Settings",
-                    "sectionHelpMessage": "<strong>Fine-tune API request handling and queue management.</strong><br><br>Configure <strong>Provisioning timeout</strong> to set the maximum time in seconds to wait for provisioning operations to complete.<br><br>Enable <strong>Queue</strong> to use queue management for API requests, allowing you to control rate limiting and concurrency. When enabled, you can configure maximum concurrent requests and requests per second.<br><br>Enable <strong>Retry</strong> to automatically retry failed API requests. When enabled, you can configure the maximum number of retry attempts.<br><br>Configure <strong>Processing wait time</strong> to set the wait time (in seconds) for processing operations. This is reserved for future scheduling features.<br><br>Set <strong>Maximum concurrent requests</strong> to control how many API requests can run simultaneously (only used when queue is enabled).<br><br>Configure <strong>Retry delay</strong> to set the base delay (in milliseconds) between retry attempts for failed requests. For HTTP 429 responses, the retry delay is automatically calculated from the retry-after header.<br><br>Use <strong>Batch size</strong> to specify how many requests to include in a single processing batch.<br><br>Enable <strong>Batching</strong> to allow requests to be grouped and processed together for better efficiency.<br><br>Enable <strong>Priority processing</strong> to use prioritization when processing the queue, allowing more important requests to be handled first (enabled by default when queue is enabled).",
+                    "sectionHelpMessage": "<strong>Fine-tune API request handling and queue management.</strong><br><br>Configure <strong>Provisioning timeout</strong> to set the maximum time in seconds to wait for provisioning operations to complete.<br><br>Enable <strong>Queue</strong> to use queue management for API requests, allowing you to control rate limiting and concurrency. When enabled, you can configure maximum concurrent requests and requests per second.<br><br>Enable <strong>Retry</strong> to automatically retry failed API requests. When enabled, you can configure the maximum number of retry attempts.<br><br>Configure <strong>Processing wait time</strong> to set the interval (in seconds) between keep-alive signals during account list and account update operations; prevents timeouts on long-running runs.<br><br>Set <strong>Maximum concurrent requests</strong> to control how many API requests can run simultaneously (only used when queue is enabled).<br><br>Configure <strong>Retry delay</strong> to set the base delay (in milliseconds) between retry attempts for failed requests. For HTTP 429 responses, the retry delay is automatically calculated from the retry-after header.<br><br>Use <strong>Batch size</strong> to specify how many requests to include in a single processing batch.<br><br>Enable <strong>Batching</strong> to allow requests to be grouped and processed together for better efficiency.<br><br>Enable <strong>Priority processing</strong> to use prioritization when processing the queue, allowing more important requests to be handled first (enabled by default when queue is enabled).",
                     "items": [
                         {
                             "key": "provisioningTimeout",
@@ -779,9 +759,21 @@
                             "type": "number",
                             "required": false,
                             "min": "1",
+                            "max": "10",
                             "parentKey": "enableQueue",
                             "parentValue": "true",
                             "helpKey": "Maximum number of API requests to run concurrently (only used when queue is enabled)"
+                        },
+                        {
+                            "key": "requestsPerSecond",
+                            "label": "Requests per second",
+                            "type": "number",
+                            "required": false,
+                            "min": "1",
+                            "max": "12",
+                            "parentKey": "enableQueue",
+                            "parentValue": "true",
+                            "helpKey": "Maximum number of API requests per second (throttling, only used when queue is enabled)"
                         },
                         {
                             "key": "enableRetry",
@@ -791,12 +783,23 @@
                             "helpKey": "Enable automatic retry logic for failed API requests"
                         },
                         {
+                            "key": "maxRetries",
+                            "label": "API request retries",
+                            "type": "number",
+                            "required": false,
+                            "min": "0",
+                            "max": "20",
+                            "parentKey": "enableRetry",
+                            "parentValue": "true",
+                            "helpKey": "Maximum number of retry attempts for failed API requests (only used when retry is enabled)"
+                        },
+                        {
                             "key": "processingWait",
                             "label": "Processing wait time (seconds)",
                             "type": "number",
                             "required": true,
                             "min": "0",
-                            "helpKey": "Wait time for processing operations in seconds (reserved for future scheduling features)"
+                            "helpKey": "Interval in seconds between keep-alive signals during account list and account update; prevents timeouts on long-running operations"
                         },
                         {
                             "key": "retryDelay",
@@ -821,6 +824,7 @@
                             "parentValue": "true",
                             "required": true,
                             "min": "1",
+                            "max": "250",
                             "helpKey": "Number of requests to include in a single processing batch (only used when batching is enabled)"
                         },
                         {

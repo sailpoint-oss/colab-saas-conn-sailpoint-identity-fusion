@@ -11,11 +11,13 @@ import { FusionAccount } from '../model/account'
  * 1. SETUP: Load sources, schema, and initialize attribute counters
  * 2. FETCH: Load fusion accounts, identities, managed accounts in parallel
  * 3. DEPLETION: Process and remove accounts from the work queue
- *    a. fetchFormData - Remove accounts with pending form decisions
- *    b. processFusionAccounts - Remove accounts belonging to existing fusion accounts
- *    c. processIdentities - Remove accounts belonging to identities
- *    d. processFusionIdentityDecisions - Process fusion identity decisions
+ *    a. fetchFormData - Load pending forms + extract decisions
+ *    b. processFusionAccounts - Process existing fusion accounts (work-queue depletion)
+ *    c. processIdentities - Process identities (create missing fusion identities)
+ *    d. processFusionIdentityDecisions - Process "new identity" decisions
  *    e. processManagedAccounts - Process remaining uncorrelated accounts (deduplication)
+ *    f. reconcilePendingFormState - Recalculate transient form-derived entitlements (candidate + reviews)
+ *    g. refreshUniqueAttributes - Generate unique attributes for new non-managed accounts
  * 4. REPORT: Generate fusion report (conditional)
  * 5. OUTPUT: Send final fusion account list to platform
  * 6. CLEANUP: Clear caches and save state
@@ -31,7 +33,7 @@ import { FusionAccount } from '../model/account'
  * Work Queue (sources.managedAccountsById):
  * - Starts with all managed accounts from all sources
  * - Gets depleted as accounts are matched and processed
- * - By step 3e (processManagedAccounts), only uncorrelated accounts remain
+ * - By step 3e (processManagedAccounts), only unmatched accounts remain
  * - Physical deletion from map ensures no duplicate processing
  */
 export const accountList = async (
@@ -47,6 +49,7 @@ export const accountList = async (
     try {
         log.info('Starting aggregation')
         const timer = log.timer()
+        let phase = 1
 
         await sources.fetchAllSources()
         log.info(`Loaded ${sources.managedSources.length} managed source(s)`)
@@ -75,7 +78,7 @@ export const accountList = async (
 
         await attributes.initializeCounters()
         log.info('Attribute counters initialized')
-        timer.phase('PHASE 1: Setup and initialization')
+        timer.phase(`PHASE ${phase++}: Setup and initialization`)
 
         log.info('Fetching fusion accounts, identities, managed accounts, and sender')
         const fetchPromises = [
@@ -96,8 +99,9 @@ export const accountList = async (
                 await identities.fetchIdentityById(fusionOwner.id!)
             }
         }
-        timer.phase('PHASE 2: Fetching data in parallel')
+        timer.phase(`PHASE ${phase++}: Fetching data in parallel`)
 
+        log.info('Step 3.0: Processing fusion forms and instances')
         await forms.fetchFormData()
         log.info('Form data loaded')
 
@@ -112,13 +116,19 @@ export const accountList = async (
         identities.clear()
         log.info('Identities cache cleared from memory')
 
-        log.info('Step 3.3: Processing fusion identity decisions')
+        log.info('Step 3.3: Processing fusion identity decisions (new identity)')
         newNonManagedFusionAccounts.push(...await fusion.processFusionIdentityDecisions())
 
         log.info('Step 3.4: Processing managed accounts (deduplication)')
         await fusion.processManagedAccounts()
 
-        log.info('Step 3.5: Refresh non-managed accounts unique attributes')
+        log.info('Step 3.5: Reconciling pending form state (candidates + reviewer links)')
+        // Reconcile transient form-derived entitlements (candidate + pending reviews).
+        // Must run after processManagedAccounts because new pending forms may be created there
+        // and candidates flagged during form creation need to be preserved for this run.
+        fusion.reconcilePendingFormState()
+
+        log.info('Step 3.6: Refresh non-managed accounts unique attributes')
         // Memory: splice drains the array so refs are released per batch; bounded concurrency
         const refreshBatchSize = config.managedAccountsBatchSize ?? 50
         while (newNonManagedFusionAccounts.length > 0) {
@@ -127,7 +137,7 @@ export const accountList = async (
         }
 
         log.info(`Work queue processing complete - ${sources.managedAccountsById.size} unprocessed account(s) remaining`)
-        timer.phase('PHASE 3: Work queue depletion - processing accounts')
+        timer.phase(`PHASE ${phase++}: Work queue depletion and form reconciliation`)
 
         if (fusion.fusionReportOnAggregation) {
             const fusionOwnerAccount = fusion.getFusionIdentity(fusionOwner.id!)
@@ -135,8 +145,15 @@ export const accountList = async (
             if (fusionOwnerAccount) {
                 await generateReport(fusionOwnerAccount, false, serviceRegistry)
             }
-            timer.phase('PHASE 4: Generating fusion report')
+            timer.phase(`PHASE ${phase++}: Generating fusion report`)
         }
+
+        await attributes.saveState()
+        log.info('Attribute state saved')
+        await sources.saveBatchCumulativeCount()
+        log.info('Batch cumulative count saved')
+
+        timer.phase(`PHASE ${phase++}: Saving state and clearing memory`)
 
         // Memory optimization: clear analyzed account arrays regardless of report flag.
         // generateReport() clears them internally, but if reporting is disabled they would
@@ -146,17 +163,10 @@ export const accountList = async (
         await forms.cleanUpForms()
         log.info('Form cleanup completed')
 
-        await attributes.saveState()
-        log.info('Attribute state saved')
-
-        await sources.saveBatchCumulativeCount()
-        log.info('Batch cumulative count saved')
-        timer.phase('PHASE 5: Saving state and clearing memory')
-
         log.info('Sending accounts to platform')
         const count = await fusion.forEachISCAccount((account) => res.send(account))
         log.info(`Sent ${count} account(s) to platform`)
-        timer.phase('PHASE 6: Finalizing and sending accounts')
+        timer.phase(`PHASE ${phase++}: Finalizing and sending accounts`)
 
         sources.clearFusionAccounts()
         log.info('Account caches cleared from memory')

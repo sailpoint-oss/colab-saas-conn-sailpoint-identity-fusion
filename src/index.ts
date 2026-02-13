@@ -34,7 +34,13 @@ import { entitlementList } from './operations/entitlementList'
 import { accountDiscoverSchema } from './operations/accountDiscoverSchema'
 import { isProxyMode, isProxyService, proxy } from './utils/proxy'
 
-// Connector must be exported as module property named connector
+/**
+ * Identity Fusion NG connector factory. Loads configuration and returns a configured
+ * connector instance with all standard operations (test connection, account list/read/create/update,
+ * entitlement list, schema discovery). Supports custom, proxy, and default run modes.
+ *
+ * @returns A promise that resolves to the configured connector
+ */
 export const connector = async () => {
     const config: FusionConfig = await safeReadConfig()
     //==============================================================================================================
@@ -65,7 +71,7 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to test connection: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
         }
     }
@@ -101,7 +107,9 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to aggregate accounts: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            // Fire-and-forget: do not block the response on external log delivery.
+            // Awaiting flush can block the handler from returning, keeping the client waiting.
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
             if (interval) {
                 clearInterval(interval)
@@ -134,7 +142,7 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to read account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
         }
     }
@@ -168,7 +176,7 @@ export const connector = async () => {
                 ConnectorErrorType.Generic
             )
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
         }
     }
@@ -206,7 +214,7 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to update account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
             if (interval) {
                 clearInterval(interval)
@@ -240,7 +248,7 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to enable account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
         }
     }
@@ -271,7 +279,7 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to disable account ${input.identity}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
         }
     }
@@ -302,7 +310,7 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to list entitlements for type ${input.type}: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
         }
     }
@@ -333,7 +341,7 @@ export const connector = async () => {
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(`Failed to discover schema: ${detail}`, ConnectorErrorType.Generic)
         } finally {
-            await serviceRegistry?.log.flush()
+            void serviceRegistry?.log.flush()
             ServiceRegistry.clear()
         }
     }

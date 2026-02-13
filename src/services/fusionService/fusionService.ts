@@ -195,12 +195,68 @@ export class FusionService {
         const fusionAccounts = this.sources.fusionAccounts
         this.log.info(`Processing ${fusionAccounts.length} fusion account(s)`)
         const results = await promiseAllBatched(fusionAccounts, async (x: Account) => {
-            const fusionAccount = await this.processFusionAccount(x)
-            fusionAccount.removeStatus('candidate')
-            return fusionAccount
+            return await this.processFusionAccount(x)
         })
         this.log.info('Fusion accounts processing completed')
         return results
+    }
+
+    /**
+     * Reconcile transient entitlements derived from pending form instances.
+     *
+     * This is intended for StdAccountList runs:
+     * - Clears any persisted/stale 'candidate' and reviewer 'reviews'
+     * - Re-applies them only from currently-known pending (unanswered) form instances
+     *
+     * This is necessary because not all identities may originate from existing fusion accounts
+     * (some can be created from Identity documents), and those would otherwise retain stale values.
+     */
+    public reconcilePendingFormState(): void {
+        // Single source of truth: forms.pendingCandidateIdentityIds is populated from
+        // pending form instance data (fetchFormData) AND from forms created in the
+        // current run (createFusionForm). No other source should contribute candidate IDs.
+        const pendingCandidateIds = this.forms.pendingCandidateIdentityIds
+        const pendingReviewUrlsByReviewerId = this.forms.pendingReviewUrlsByReviewerId
+
+        // Clear stale transient state for ALL accounts we may output.
+        // Some accounts can be keyed in fusionAccountMap (e.g. missing/blank identityId or uncorrelated),
+        // and would otherwise retain stale values forever.
+        for (const account of this.fusionAccountMap.values()) {
+            account.removeStatus('candidate')
+            account.clearFusionReviews()
+        }
+        for (const identity of this.fusionIdentityMap.values()) {
+            identity.removeStatus('candidate')
+            identity.clearFusionReviews()
+        }
+
+        // Re-apply candidate status for identities that are candidates on active pending forms
+        for (const identityId of pendingCandidateIds) {
+            const identity = this.fusionIdentityMap.get(identityId)
+            if (identity) {
+                identity.addStatus('candidate')
+            }
+        }
+
+        // Re-apply pending reviewer URLs for identities that are recipients of active pending forms
+        for (const [reviewerId, urls] of pendingReviewUrlsByReviewerId.entries()) {
+            const reviewer = this.fusionIdentityMap.get(reviewerId)
+            if (!reviewer || !urls?.length) continue
+            for (const url of urls) {
+                reviewer.addFusionReview(url)
+            }
+        }
+
+        // Sync the in-memory Sets back into each account's attribute bag so that
+        // _attributeBag.current['statuses'] / ['reviews'] reflect the mutations above.
+        // Without this, anything reading fusionAccount.attributes between now and
+        // getISCAccount (attribute mapping, report generation, etc.) would see stale values.
+        for (const account of this.fusionAccountMap.values()) {
+            account.syncCollectionAttributesToBag()
+        }
+        for (const identity of this.fusionIdentityMap.values()) {
+            identity.syncCollectionAttributesToBag()
+        }
     }
 
     /**
@@ -377,33 +433,16 @@ export class FusionService {
     }
 
     /**
-     * Process all fusion identity decisions.
-     * Applies candidate status where applicable, then processes finished decisions.
+     * Process all fusion identity decisions (new identity).
+     * Candidate status is handled by processFusionAccounts, since pending form
+     * candidates are always existing fusion accounts.
      *
-     * @returns The fusion accounts produced or updated by the decisions
+     * @returns The fusion accounts produced by the new identity decisions
      */
     public async processFusionIdentityDecisions(): Promise<FusionAccount[]> {
         const { fusionIdentityDecisions } = this.forms
         this.log.info(`Processing ${fusionIdentityDecisions.length} fusion identity decision(s)`)
 
-        // Apply 'candidate' status to identities that are candidates of pending (unanswered) forms.
-        // During aggregation, the status was stripped on load (preProcessFusionAccount) so only
-        // identities with an actual pending review in flight will carry this status.
-        // These IDs were collected during fetchFormData from form input data.
-        const pendingCandidateIds = this.forms.pendingCandidateIdentityIds
-        let candidatesApplied = 0
-        for (const identityId of pendingCandidateIds) {
-            const identity = this.fusionIdentityMap.get(identityId)
-            if (identity) {
-                identity.addStatus('candidate')
-                candidatesApplied++
-            }
-        }
-        if (candidatesApplied > 0) {
-            this.log.debug(`Applied candidate status to ${candidatesApplied} identit(ies) from pending form instances`)
-        }
-
-        // Apply only finished decisions to fusion identities.
         const results = await promiseAllBatched(fusionIdentityDecisions, (x) => this.processFusionIdentityDecision(x))
         this.log.info('Fusion identity decisions processing completed')
         return compact(results)
@@ -780,7 +819,9 @@ export class FusionService {
     /**
      * Flag candidate identities with the 'candidate' status.
      * Called when a fusion form is created to mark matching identities as candidates
-     * of a pending Fusion review.
+     * of a pending Fusion review. The authoritative candidate set is maintained by
+     * forms.pendingCandidateIdentityIds; this method provides an early status hint
+     * that reconcilePendingFormState will later clear and re-apply from the canonical set.
      */
     private flagCandidatesWithStatus(fusionAccount: FusionAccount): void {
         for (const match of fusionAccount.fusionMatches) {
@@ -788,9 +829,7 @@ export class FusionService {
             if (!identityId) continue
             const identity = this.fusionIdentityMap.get(identityId)
             if (identity) {
-                identity.addStatus(
-                    'candidate'
-                )
+                identity.addStatus('candidate')
                 this.log.debug(`Flagged identity ${identityId} as candidate for ${fusionAccount.name}`)
             }
         }
@@ -836,10 +875,6 @@ export class FusionService {
         this.log.debug(
             `Pre-processing managed account: ${account.name} [${account.sourceName}], accountId=${account.id}`
         )
-
-        assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
-        // Single account - pass a minimal map so we don't mutate the shared work queue
-        fusionAccount.addManagedAccountLayer(new Map([[account.id!, account]]))
 
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshNonUniqueAttributes(fusionAccount)

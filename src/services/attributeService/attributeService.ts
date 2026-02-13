@@ -13,6 +13,7 @@ import { SourceService } from '../sourceService'
 import { COMPOUND_KEY_UNIQUE_ID_ATTRIBUTE, FUSION_STATE_CONFIG_PATH } from './constants'
 import { AttributeMappingConfig } from './types'
 import { isUniqueAttribute, processAttributeMapping, buildAttributeMappingConfig } from './helpers'
+import { isValidAttributeValue } from '../../utils/attributes'
 import { StateWrapper } from './stateWrapper'
 
 // ============================================================================
@@ -127,10 +128,12 @@ export class AttributeService {
     }
 
     /**
-     * Set state wrapper for counter-based attributes
-     * Injects lock service for thread-safe counter operations in parallel processing
+     * Set state wrapper for counter-based attributes.
+     * Injects lock service for thread-safe counter operations in parallel processing.
+     *
+     * @param state - Persisted counter state (attribute name -> numeric value); typically from config.fusionState
      */
-    public setStateWrapper(state: any): void {
+    public setStateWrapper(state: Record<string, unknown> | undefined): void {
         this.stateWrapper = new StateWrapper(state, this.locks)
     }
 
@@ -187,7 +190,9 @@ export class AttributeService {
     /**
      * Maps attributes from source accounts to the fusion account.
      * Processes source attributes in the established source order if refresh is needed,
-     * using the current attribute bag as a default.
+     * using the current attribute bag as a default. For identity-type accounts, returns
+     * immediately without mapping. Ensures fusion account history is preserved and never
+     * overwritten by empty arrays from source mapping.
      *
      * @param fusionAccount - The fusion account to map attributes for
      */
@@ -676,11 +681,16 @@ export class AttributeService {
         const { name, refresh } = definition
         const needsRefresh = fusionAccount.needsRefresh || fusionAccount.needsReset || refresh
         const needsReset = fusionAccount.needsReset
-        const hasValue = fusionAccount.attributes[name] !== undefined
+        const hasValue = isValidAttributeValue(fusionAccount.attributes[name])
         const isUnique = isUniqueAttribute(definition)
 
-        // Skip if attribute is unique and exists and reset is not requested
+        // Skip if attribute is unique and exists and reset is not requested.
+        // Register the existing value so generators know it's taken and avoid collisions.
         if (hasValue && isUnique && !needsReset) {
+            const existingValue = String(fusionAccount.attributes[name])
+            if (existingValue) {
+                this.getUniqueValues(name).add(existingValue)
+            }
             return
         }
 

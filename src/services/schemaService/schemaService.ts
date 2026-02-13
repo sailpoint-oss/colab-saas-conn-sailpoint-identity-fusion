@@ -238,7 +238,7 @@ export class SchemaService {
             .map((x) => {
                 return {
                     name: x.name!,
-                    description: x.expression ? `Created from expression: ${x.expression.replace(/\n/g, '')}` : '',
+                    description: x.expression ? `Created from expression: ${x.expression}` : '',
                     type: 'string',
                     multi: false,
                     entitlement: false,
@@ -263,14 +263,20 @@ export class SchemaService {
     }
 
     /**
-     * Get all schema attributes
+     * Returns all schema attributes from the fusion account schema (identity, display,
+     * and attribute definitions).
+     *
+     * @returns Array of SchemaAttribute objects
      */
     public getSchemaAttributes(): SchemaAttribute[] {
         return this.fusionAccountSchema.attributes
     }
 
     /**
-     * Build dynamic schema from managed sources
+     * Builds the fusion account schema from managed sources, attribute mappings,
+     * and attribute definitions. Used for schema discovery.
+     *
+     * @returns The dynamically built AccountSchema
      */
     public async buildDynamicSchema(): Promise<AccountSchema> {
         this.log.debug('Building dynamic schema.')

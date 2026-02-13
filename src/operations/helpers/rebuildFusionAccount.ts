@@ -6,6 +6,11 @@ import { AttributeOperations } from '../../services/attributeService/types'
 /**
  * Rebuilds a fusion account by fetching fresh data and reprocessing attributes.
  * Loads the fusion account, its identity, and all linked managed accounts.
+ *
+ * @param nativeIdentity - The native identity (unique ID) of the fusion account
+ * @param attributeOperations - Flags controlling which attribute operations to perform
+ * @param serviceRegistry - Optional; defaults to ServiceRegistry.getCurrent() if omitted
+ * @returns The rebuilt FusionAccount, or undefined if not found
  */
 export const rebuildFusionAccount = async (
     nativeIdentity: string,
