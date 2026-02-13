@@ -101,34 +101,34 @@ export const accountList = async (
         }
         timer.phase(`PHASE ${phase++}: Fetching data in parallel`)
 
-        log.info('Step 3.0: Processing fusion forms and instances')
+        log.info(`Step ${phase}.0: Processing fusion forms and instances`)
         await forms.fetchFormData()
         log.info('Form data loaded')
 
-        log.info('Step 3.1: Processing existing fusion accounts')
+        log.info(`Step ${phase}.1: Processing existing fusion accounts`)
         await fusion.processFusionAccounts()
 
         const newNonManagedFusionAccounts: FusionAccount[] = []
-        log.info('Step 3.2: Processing identities')
+        log.info(`Step ${phase}.2: Processing identities`)
         newNonManagedFusionAccounts.push(...await fusion.processIdentities())
 
         // Memory optimization: identities are no longer needed past this point
         identities.clear()
         log.info('Identities cache cleared from memory')
 
-        log.info('Step 3.3: Processing fusion identity decisions (new identity)')
+        log.info(`Step ${phase}.3: Processing fusion identity decisions (new identity)`)
         newNonManagedFusionAccounts.push(...await fusion.processFusionIdentityDecisions())
 
-        log.info('Step 3.4: Processing managed accounts (deduplication)')
+        log.info(`Step ${phase}.4: Processing managed accounts (deduplication)`)
         await fusion.processManagedAccounts()
 
-        log.info('Step 3.5: Reconciling pending form state (candidates + reviewer links)')
+        log.info(`Step ${phase}.5: Reconciling pending form state (candidates + reviewer links)`)
         // Reconcile transient form-derived entitlements (candidate + pending reviews).
         // Must run after processManagedAccounts because new pending forms may be created there
         // and candidates flagged during form creation need to be preserved for this run.
         fusion.reconcilePendingFormState()
 
-        log.info('Step 3.6: Refresh non-managed accounts unique attributes')
+        log.info(`Step ${phase}.6: Refresh non-managed accounts unique attributes`)
         // Memory: splice drains the array so refs are released per batch; bounded concurrency
         const refreshBatchSize = config.managedAccountsBatchSize ?? 50
         while (newNonManagedFusionAccounts.length > 0) {
