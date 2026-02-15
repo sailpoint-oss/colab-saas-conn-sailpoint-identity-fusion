@@ -82,6 +82,12 @@
                             "required": false
                         },
                         {
+                            "key": "referenceTransformName",
+                            "label": "Lifecycle Reference Transform Name",
+                            "type": "text",
+                            "required": false
+                        },
+                        {
                             "key": "attributeMerge",
                             "label": "Default attribute merge from multiple sources",
                             "type": "radio",
