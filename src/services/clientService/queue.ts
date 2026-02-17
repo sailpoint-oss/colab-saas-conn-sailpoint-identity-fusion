@@ -39,17 +39,19 @@ export class ApiQueue {
             priority?: QueuePriority
             maxRetries?: number
             id?: string
+            abortSignal?: AbortSignal
         } = {}
     ): Promise<T> {
         const item: QueueItem<T> = {
             id: options.id || `req-${Date.now()}-${Math.random()}`,
             priority: options.priority ?? QueuePriority.NORMAL,
             execute,
-            resolve: () => {},
-            reject: () => {},
+            resolve: () => { },
+            reject: () => { },
             retryCount: 0,
             maxRetries: options.maxRetries ?? this.config.maxRetries,
             createdAt: Date.now(),
+            abortSignal: options.abortSignal,
         }
 
         return new Promise<T>((resolve, reject) => {
@@ -63,6 +65,23 @@ export class ApiQueue {
             } else {
                 this.queue.splice(insertIndex, 0, item)
             }
+
+            // Handle pre-flight abort
+            if (options.abortSignal?.aborted) {
+                this.queue = this.queue.filter((q) => q !== item)
+                item.reject(new Error('Aborted'))
+                return
+            }
+
+            // Handle abort while queued
+            options.abortSignal?.addEventListener('abort', () => {
+                const index = this.queue.indexOf(item)
+                if (index !== -1) {
+                    this.queue.splice(index, 1)
+                    this.stats.queueLength = this.queue.length
+                    item.reject(new Error('Aborted'))
+                }
+            })
 
             this.stats.queueLength = this.queue.length
 
@@ -129,6 +148,9 @@ export class ApiQueue {
         this.lastRequestTime = Date.now()
 
         try {
+            if (item.abortSignal?.aborted) {
+                throw new Error('Aborted')
+            }
             const result = await item.execute()
             const processingTime = Date.now() - startTime
             this.processingTimes.push(processingTime)

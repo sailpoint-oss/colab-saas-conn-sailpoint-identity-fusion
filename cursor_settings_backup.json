@@ -1,0 +1,33 @@
+{
+  "settings": {
+    "window.commandCenter": true,
+    "explorer.confirmDelete": false,
+    "git.autofetch": true,
+    "terminal.integrated.fontSize": 14,
+    "[json]": {
+      "editor.defaultFormatter": "vscode.json-language-features"
+    },
+    "explorer.confirmDragAndDrop": false,
+    "git.enableSmartCommit": true,
+    "terminal.integrated.enableMultiLinePasteWarning": "never",
+    "[typescript]": {
+      "editor.defaultFormatter": "vscode.typescript-language-features"
+    },
+    "githubPullRequests.pullBranch": "never",
+    "editor.formatOnSave": true,
+    "editor.renderControlCharacters": false,
+    "iiq-dev-accelerator.environment": "seri",
+    "iiq-dev-accelerator.iiq_url": "",
+    "iiq-dev-accelerator.username": "",
+    "iiq-dev-accelerator.password": "",
+    "typescript.updateImportsOnFileMove.enabled": "always",
+    "javascript.updateImportsOnFileMove.enabled": "always",
+    "git.openRepositoryInParentFolders": "never"
+  },
+  "keybindings": [
+    {
+      "key": "cmd+i",
+      "command": "composerMode.agent"
+    }
+  ]
+}

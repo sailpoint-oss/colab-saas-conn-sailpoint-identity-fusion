@@ -59,28 +59,28 @@
                 {
                     "type": "section",
                     "sectionTitle": "Connection Settings",
-                    "sectionHelpMessage": "<strong>Configure how this connector connects to Identity Security Cloud.</strong><br><br>Use <strong>Identity Security Cloud API URL</strong> to specify the base URL of your ISC tenant (for example, <code>https://tenant.api.identitynow.com</code>).<br><br>Provide the <strong>Personal Access Token ID</strong> and <strong>Personal Access Token Secret</strong> for an account that has the required API permissions. These values are used to authenticate all connector operations.",
+                    "sectionHelpMessage": "<strong>Configure how this connector connects to Identity Security Cloud.</strong><br><br>Use <strong>Identity Security Cloud API URL</strong> to specify the base URL of your ISC tenant (for example, <code>https://tenant.api.identitynow.com</code>).<br><br>Provide the <strong>Personal Access Token ID</strong> and <strong>Personal Access Token Secret</strong> for an account that has the required API permissions (Sources, Identities, Accounts, Workflows/Forms). These values are used to authenticate all connector operations.",
                     "items": [
                         {
                             "key": "baseurl",
                             "label": "Identity Security Cloud API URL",
                             "type": "url",
                             "required": true,
-                            "helpKey": "Base URL of your Identity Security Cloud tenant (for example, https://tenant.api.identitynow.com)"
+                            "helpKey": "Base URL of your Identity Security Cloud tenant (format: https://<tenant>.api.identitynow.com)"
                         },
                         {
                             "key": "clientId",
                             "label": "Personal Access Token ID",
                             "type": "text",
                             "required": true,
-                            "helpKey": "Personal Access Token ID for an account with required API permissions"
+                            "helpKey": "Client ID from your Personal Access Token. Must have required API permissions for sources, identities, accounts, workflows/forms"
                         },
                         {
                             "key": "clientSecret",
                             "label": "Personal Access Token secret",
                             "type": "secret",
                             "required": true,
-                            "helpKey": "Personal Access Token secret for authentication"
+                            "helpKey": "Client Secret from your Personal Access Token. Keep secure; rotate as needed"
                         }
                     ]
                 }
@@ -93,14 +93,14 @@
                 {
                     "type": "section",
                     "sectionTitle": "Scope",
-                    "sectionHelpMessage": "<strong>Define which identities are in scope for processing.</strong><br><br>Use <strong>Identity Scope Query</strong> to limit which identities are evaluated by the connector. This typically uses your Identity Security Cloud search or filter syntax to select identities (for example, only active workers, a specific population, or users from certain sources). Only identities that match this query are considered during processing.",
+                    "sectionHelpMessage": "<strong>Define which identities are in scope for processing.</strong><br><br>Use <strong>Include identities in the scope?</strong> to include identities in addition to managed accounts from configured sources. This is useful for identity-only attribute generation or to define the baseline for deduplication.<br><br>Use <strong>Identity Scope Query</strong> to limit which identities are evaluated. This uses ISC search syntax (e.g. <code>attributes.cloudLifecycleState:active</code>, <code>source.name:\"Workday\"</code>). Only identities matching this query are considered.",
                     "items": [
                         {
                             "key": "includeIdentities",
                             "label": "Include identities in the scope?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Include identities outside the sources scope in the process"
+                            "helpKey": "Include identities in addition to managed accounts from configured sources. Enable for identity-only attribute generation or to define the baseline for deduplication"
                         },
                         {
                             "key": "identityScopeQuery",
@@ -109,14 +109,14 @@
                             "required": true,
                             "parentKey": "includeIdentities",
                             "parentValue": "true",
-                            "helpKey": "Search or filter query to limit which identities are evaluated by the connector (for example, only active workers, a specific population, or users from certain sources)"
+                            "helpKey": "Search/filter query to limit which identities are evaluated. Uses ISC search syntax; examples: * (all), attributes.cloudLifecycleState:active, source.name:\"Workday\""
                         }
                     ]
                 },
                 {
                     "type": "section",
                     "sectionTitle": "Sources",
-                    "sectionHelpMessage": "<strong>Select the authoritative account sources that feed Identity Fusion.</strong><br><br>Use <strong>Authoritative Account Sources</strong> to configure each source whose accounts will be merged and evaluated when building Identity Fusion accounts. For each source, you can enable <strong>Force aggregation before processing?</strong> to trigger a fresh aggregation before each run, and optionally specify an <strong>Account filter</strong> to limit which accounts from that source are processed (uses Identity Security Cloud search/filter syntax). This helps ensure that Identity Fusion always processes the most current account data, at the cost of longer run times.<br><br>Use the global <strong>Aggregation task result retries</strong> and <strong>Aggregation task result wait time</strong> settings to control how many times and how often the connector polls aggregation task status for all sources with force aggregation enabled.",
+                    "sectionHelpMessage": "<strong>Select the authoritative account sources that feed Identity Fusion.</strong><br><br>Use <strong>Authoritative Account Sources</strong> to configure sources whose accounts will be merged. For each source:<br><ul><li><strong>Source name:</strong> Must match the ISC source name exactly.</li><li><strong>Force aggregation:</strong> Trigger fresh aggregation before processing (ensures current data but increases runtime).</li><li><strong>Account filter:</strong> Limit which accounts are processed (uses ISC search syntax).</li><li><strong>Aggregation batch size:</strong> Limit accounts per run (useful for initial loading).</li></ul><br>Global settings control retries and wait times for aggregation task polling.",
                     "items": [
                         {
                             "key": "sources",
@@ -140,28 +140,28 @@
                                             "label": "Source name",
                                             "type": "text",
                                             "required": true,
-                                            "helpKey": "Name of the authoritative account source"
+                                            "helpKey": "Name of the authoritative account source. Must match the source name in ISC exactly (case-sensitive)"
                                         },
                                         {
                                             "key": "forceAggregation",
                                             "label": "Force aggregation before processing?",
                                             "type": "toggle",
                                             "required": false,
-                                            "helpKey": "Trigger a fresh aggregation of this source before each run"
+                                            "helpKey": "Trigger a fresh aggregation of this source before each run. Ensures current data but increases runtime"
                                         },
                                         {
                                             "key": "accountFilter",
                                             "label": "Account filter",
                                             "type": "text",
                                             "required": false,
-                                            "helpKey": "Filter query to limit which accounts from this source are processed (uses Identity Security Cloud search/filter syntax)"
+                                            "helpKey": "Filter query to limit which accounts from this source are processed. Uses ISC search syntax; example: attributes.department:\"Engineering\""
                                         },
                                         {
                                             "key": "accountLimit",
                                             "label": "Aggregation batch size",
                                             "type": "number",
                                             "required": false,
-                                            "helpKey": "Leave empty to aggregate all accounts from this source or set a maximum number of accounts to aggregate per run. This is useful for initial loading of a large number of accounts with potential internal duplicates."
+                                            "helpKey": "Maximum accounts to aggregate per run. Leave empty for all accounts; useful for initial loading of large datasets"
                                         }
                                     ]
                                 }
@@ -173,7 +173,7 @@
                             "type": "number",
                             "required": false,
                             "min": "0",
-                            "helpKey": "Number of times to poll the aggregation task status before giving up (applies to all sources with force aggregation enabled)"
+                            "helpKey": "Number of times to poll aggregation task status. Default: 5; applies to all sources with force aggregation enabled"
                         },
                         {
                             "key": "taskResultWait",
@@ -181,14 +181,14 @@
                             "type": "number",
                             "required": false,
                             "min": "0",
-                            "helpKey": "Wait time between aggregation task status checks in seconds (applies to all sources with force aggregation enabled)"
+                            "helpKey": "Wait time between aggregation task status checks (seconds). Default: 1; applies to all sources with force aggregation enabled"
                         }
                     ]
                 },
                 {
                     "type": "section",
                     "sectionTitle": "Processing Control",
-                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained over time.</strong><br><br>Enable <strong>Delete accounts with no authoritative accounts left?</strong> to automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization).<br><br>Enable <strong>Correlate missing source accounts on aggregation?</strong> to attempt to automatically correlate new or previously missing source accounts during each aggregation cycle.<br><br>Use <strong>Resets processing flag in case of unfinished processing</strong> to clear any stuck processing state from a prior, incomplete run so that processing can safely restart.<br><br>Enable <strong>Force attribute refresh on each aggregation?</strong> to force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified.<br><br>Enable <strong>Skip accounts with missing unique ID?</strong> to skip processing accounts that don't have a value for the configured fusion identity attribute, and log them for review.<br><br>Use <strong>Maximum history messages</strong> to limit how many history entries are retained per Fusion account. Older entries are discarded when the limit is exceeded.",
+                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained.</strong><br><br><ul><li><strong>Maximum history messages:</strong> Limit history entries per account (default: 10).</li><li><strong>Delete accounts...:</strong> Remove Fusion account when all source accounts are gone.</li><li><strong>Correlate missing...:</strong> Attempt to correlate new/missing source accounts each run (default: true).</li><li><strong>Force attribute refresh...:</strong> Force Normal-type attributes to refresh every run (expensive).</li><li><strong>Skip accounts...:</strong> Skip processing if fusion identity attribute is missing.</li></ul>",
                     "items": [
                         {
                             "key": "maxHistoryMessages",
@@ -196,35 +196,35 @@
                             "type": "number",
                             "required": false,
                             "min": "1",
-                            "helpKey": "Maximum number of history messages to retain per Fusion account. Older entries are discarded when the limit is exceeded"
+                            "helpKey": "Maximum history entries retained per Fusion account. Default: 10; older entries are discarded"
                         },
                         {
                             "key": "deleteEmpty",
                             "label": "Delete accounts with no authoritative accounts left?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Automatically remove Identity Fusion accounts when all contributing source accounts have been removed (for example, when a user leaves the organization)"
+                            "helpKey": "Remove Fusion accounts when all contributing source accounts are removed. Useful for automated cleanup when users leave"
                         },
                         {
                             "key": "correlateOnAggregation",
                             "label": "Correlate missing source accounts on aggregation?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Attempt to automatically correlate new or previously missing source accounts during each aggregation cycle"
+                            "helpKey": "Attempt to correlate new or previously missing source accounts each run. Default: true; helps with incremental correlation"
                         },
                         {
                             "key": "forceAttributeRefresh",
                             "label": "Force attribute refresh on each aggregation?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Force all account attributes to be refreshed on every aggregation run, regardless of whether the account was recently modified"
+                            "helpKey": "Force Normal-type attributes to refresh every run. Unique attributes are only computed on creation/activation. Can be expensive"
                         },
                         {
                             "key": "skipAccountsWithMissingId",
                             "label": "Skip accounts with missing unique ID?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Skip processing accounts that don't have a value for the configured fusion identity attribute, and log them for review"
+                            "helpKey": "Skip processing accounts without a fusion identity attribute value. Skipped accounts are logged for review"
                         }
                     ]
                 }
@@ -237,14 +237,14 @@
                 {
                     "type": "section",
                     "sectionTitle": "Attribute Mapping Definitions",
-                    "sectionHelpMessage": "<strong>Define how attributes from multiple sources are mapped into the Identity Fusion account.</strong><br><br>Use <strong>Default attribute merge from multiple sources</strong> to choose how values from different authoritative sources are combined when they populate the same attribute (for example, take the first value found, keep a list of values, or concatenate distinct values).<br><br>Use <strong>Attribute Mapping</strong> to configure each target attribute: specify the <strong>New attribute</strong> name on the Identity Fusion account and the list of <strong>Existing attributes</strong> from your sources that should feed it.<br><br>For each mapping, you can optionally override the merge behavior and, when using the <strong>Source name</strong> option, specify which source should be treated as primary.",
+                    "sectionHelpMessage": "<strong>Map and merge source attributes into the Fusion account.</strong><br><br><strong>Default attribute merge:</strong> Global strategy for combining values (First found, Keep a list, Concatenate).<br><br><strong>Attribute Mapping:</strong> Configure per-attribute rules.<br><ul><li><strong>New attribute:</strong> Name on Fusion account.</li><li><strong>Existing attributes:</strong> Source attributes to map.</li><li><strong>Merge override:</strong> Override global strategy for this attribute (includes \"Source name\" to prefer a specific source).</li></ul>",
                     "items": [
                         {
                             "key": "attributeMerge",
                             "label": "Default attribute merge from multiple sources",
                             "type": "radio",
                             "required": true,
-                            "helpKey": "Default method for combining attribute values from different authoritative sources when they populate the same attribute (can be overridden per attribute mapping)",
+                            "helpKey": "Default method for combining values from different sources. Options: First found (by source order), Keep a list (array), Concatenate (string [a] [b])",
                             "options": [
                                 {
                                     "label": "First found",
@@ -281,14 +281,14 @@
                                             "label": "New attribute",
                                             "type": "text",
                                             "required": true,
-                                            "helpKey": "New attribute name"
+                                            "helpKey": "Name of the attribute on the Fusion account. Will appear in the discovered schema"
                                         },
                                         {
                                             "key": "existingAttributes",
                                             "label": "Existing attributes",
                                             "type": "list",
                                             "required": true,
-                                            "helpKey": "List of existing attributes to map to the new attribute"
+                                            "helpKey": "List of source attribute names that feed this attribute. Names must match source account schema (case-sensitive)"
                                         }
                                     ]
                                 },
@@ -300,7 +300,7 @@
                                             "label": "Default attribute merge from multiple sources",
                                             "type": "radio",
                                             "required": true,
-                                            "helpKey": "Override the default merge behavior for this specific attribute mapping. Choose how values from different sources are combined: First found (use first value), Keep a list of values (create a list), Concatenate different values (concatenate with brackets), or Source name (use value from a specific primary source)",
+                                            "helpKey": "Override default merge for this mapping. Adds \"Source name\" option to use value from a specific authoritative source",
                                             "options": [
                                                 {
                                                     "label": "First found",
@@ -327,7 +327,7 @@
                                             "parentKey": "attributeMerge",
                                             "parentValue": "source",
                                             "required": true,
-                                            "helpKey": "Name of the primary source whose attribute value should be used when multiple sources provide values for this attribute"
+                                            "helpKey": "Specific source to use for this attribute. Takes precedence when multiple sources have values"
                                         }
                                     ]
                                 }
@@ -344,7 +344,7 @@
                 {
                     "type": "section",
                     "sectionTitle": "Attribute Definition Settings",
-                    "sectionHelpMessage": "<strong>Define how account attributes are generated.</strong><br><br>Use <strong>Attribute Definitions</strong> to configure how each attribute is built (name, Apache Velocity expression, case, type, counter start, minimum counter digits, maximum length, normalization, spacing, and refresh behavior). <strong>Apache Velocity expressions</strong> have access to an enhanced context including:<ul><li><strong>Math</strong> - JavaScript Math object for mathematical operations</li><li><strong>Datefns</strong> - Custom date utilities (format, parse, addDays, addMonths, addYears, subDays, subMonths, subYears, isBefore, isAfter, isEqual, differenceInDays, startOfDay, endOfDay, now, isValid)</li><li><strong>AddressParse</strong> - Address parsing and city/state lookups (getCityState, getCityStateCode, parse)</li><li><strong>Normalize</strong> - Data normalization functions (date, phone, name for proper case, fullName, ssn, address)</li></ul><strong>Maximum length</strong> truncates generated values to the specified length (for unique and counter attributes, the counter is preserved at the end). <strong>Refresh on each aggregation?</strong> is only available for normal attributes and causes the attribute to be recalculated every aggregation run, even if it already has a value on the account. Counter-based and unique attributes always preserve their state across runs. <strong>UUID attributes</strong> generate universally unique identifiers automatically.<br><br>The connector supports disabling and enabling accounts. When an account is enabled, all attributes (including unique attributes) are force refreshed and recalculated, ensuring that unique attribute values are regenerated based on the current state of all accounts.<br><br>Use <strong>Maximum attempts for unique attribute generation</strong> to set the maximum number of attempts the connector will make to generate a unique value for unique or UUID attributes before giving up. This prevents infinite loops when generating unique attribute values.",
+                    "sectionHelpMessage": "<strong>Generate attributes using Velocity templates, unique IDs, UUIDs, or counters.</strong><br><br><strong>Attribute Definitions:</strong><br><ul><li><strong>Expression:</strong> Velocity template with access to mapped attributes, <code>$Math</code>, <code>$Datefns</code>, <code>$AddressParse</code>, and <code>$Normalize</code>.</li><li><strong>Type:</strong> Normal, Unique (deduplicated), UUID (immutable), or Counter.</li><li><strong>Options:</strong> Case transform, normalization, space removal, max length.</li></ul><br><strong>Unique generation:</strong> Connector appends counter on collision. Use <strong>Max attempts</strong> to prevent infinite loops.",
                     "items": [
                         {
                             "key": "maxAttempts",
@@ -352,7 +352,7 @@
                             "type": "number",
                             "required": false,
                             "min": "1",
-                            "helpKey": "Maximum number of attempts to generate a unique value for unique or UUID attributes before giving up (prevents infinite loops)"
+                            "helpKey": "Maximum attempts to generate unique value before giving up. Default: 100; prevents infinite loops with unique/UUID types"
                         },
                         {
                             "key": "attributeDefinitions",
@@ -376,21 +376,21 @@
                                             "label": "Attribute Name",
                                             "type": "text",
                                             "required": true,
-                                            "helpKey": "Name of the account attribute to be generated"
+                                            "helpKey": "Name of the account attribute to generate. Will appear in the discovered schema"
                                         },
                                         {
                                             "key": "expression",
                                             "label": "Apache Velocity expression",
                                             "type": "textarea",
                                             "required": false,
-                                            "helpKey": "Apache Velocity template expression to generate the attribute value. Context includes: Math (JavaScript Math object for mathematical operations), Datefns (custom date utilities: format, parse, addDays, addMonths, addYears, subDays, subMonths, subYears, isBefore, isAfter, isEqual, differenceInDays, startOfDay, endOfDay, now, isValid), AddressParse (address parsing: getCityState(city), getCityStateCode(city), parse(addressString) returns {street_address1, street_address2, city, state, postal_code, country}), and Normalize (data normalization: date(dateStr), phone(phoneNumber), name(name) for proper case, fullName(name), ssn(ssn), address(addressString))"
+                                            "helpKey": "Template to generate value. Context: mapped attributes, $Math, $Datefns, $AddressParse, $Normalize. Example: #set($i=$firstname.substring(0, 1))$i$lastname"
                                         },
                                         {
                                             "key": "case",
                                             "label": "Case selection",
                                             "type": "select",
                                             "required": true,
-                                            "helpKey": "Case transformation to apply to the generated attribute value",
+                                            "helpKey": "Case transformation to apply. Options: Do not change, Lower case, Upper case, Capitalize",
                                             "options": [
                                                 {
                                                     "label": "Do not change",
@@ -415,7 +415,7 @@
                                             "label": "Attribute Type",
                                             "type": "select",
                                             "required": true,
-                                            "helpKey": "Type of attribute: Normal (standard), Unique (must be unique across all accounts), UUID (universally unique identifier), or Counter-based (increments with each use)",
+                                            "helpKey": "Type of attribute: Normal (standard), Unique (must be unique across accounts), UUID (immutable), or Counter-based (increments)",
                                             "options": [
                                                 {
                                                     "label": "Normal",
@@ -442,7 +442,7 @@
                                             "required": true,
                                             "parentKey": "type",
                                             "parentValue": "counter",
-                                            "helpKey": "Starting value for the counter (increments from this value)"
+                                            "helpKey": "Starting value for the counter. Example: 1, 1000"
                                         },
                                         {
                                             "key": "digits",
@@ -451,7 +451,7 @@
                                             "required": true,
                                             "parentKey": "type",
                                             "parentValue": "counter",
-                                            "helpKey": "Minimum number of digits for the counter (padded with leading zeros if needed)"
+                                            "helpKey": "Minimum digits for counter (zero-padded). Example: 3 -> 001"
                                         },
                                         {
                                             "key": "digits",
@@ -460,7 +460,7 @@
                                             "required": true,
                                             "parentKey": "type",
                                             "parentValue": "unique",
-                                            "helpKey": "Minimum number of digits for the counter used when appending a disambiguation suffix on collision (padded with leading zeros if needed)"
+                                            "helpKey": "Minimum digits for counter appended on collision (zero-padded)"
                                         },
                                         {
                                             "key": "maxLength",
@@ -468,25 +468,25 @@
                                             "type": "number",
                                             "required": false,
                                             "min": "1",
-                                            "helpKey": "Maximum length for the generated value. For unique and counter attributes, the counter is preserved at the end"
+                                            "helpKey": "Maximum length for generated value. Truncates to this length; counter preserved at end for unique/counter types"
                                         },
                                         {
                                             "key": "normalize",
                                             "label": "Normalize special characters?",
                                             "type": "toggle",
-                                            "helpKey": "Normalize special characters in the generated attribute value"
+                                            "helpKey": "Remove special characters and quotes. Useful for IDs and usernames"
                                         },
                                         {
                                             "key": "spaces",
                                             "label": "Remove spaces?",
                                             "type": "toggle",
-                                            "helpKey": "Remove all spaces from the generated attribute"
+                                            "helpKey": "Remove all spaces from value. Useful for IDs and usernames"
                                         },
                                         {
                                             "key": "trim",
                                             "label": "Trim leading and trailing spaces?",
                                             "type": "toggle",
-                                            "helpKey": "Remove leading and trailing whitespace from the generated attribute value"
+                                            "helpKey": "Remove leading and trailing whitespace from value"
                                         },
                                         {
                                             "key": "refresh",
@@ -494,7 +494,7 @@
                                             "type": "toggle",
                                             "parentKey": "type",
                                             "parentValue": "normal",
-                                            "helpKey": "Recalculate the attribute value on every aggregation run, even if it already has a value (only available for normal attributes)"
+                                            "helpKey": "Recalculate value every aggregation? Only for Normal type; unique/UUID/counter preserve state"
                                         }
                                     ]
                                 }
@@ -511,7 +511,7 @@
                 {
                     "type": "section",
                     "sectionTitle": "Matching Settings",
-                    "sectionHelpMessage": "<strong>Configure how potential duplicate identities are detected.</strong><br><br>Use <strong>Fusion attribute matches</strong> to define which identity attributes are compared when detecting potential duplicate identities. For each attribute, specify the matching algorithm (Enhanced Name Matcher, Jaro-Winkler, Dice, or Double Metaphone), an optional similarity score threshold (0-100), and whether the attribute match is mandatory.<br><br>Enable <strong>Use overall fusion similarity score for all attributes?</strong> to use a single overall similarity score (calculated as the average of per-attribute similarity scores) instead of per-attribute scores. When enabled, configure <strong>Similarity score</strong> to set the threshold for auto-correlation.<br><br>Enable <strong>Automatically correlate if identical?</strong> to automatically merge identities when their attributes meet the similarity criteria and are effectively identical, without requiring manual review.",
+                    "sectionHelpMessage": "<strong>Configure duplicate identity detection.</strong><br><br><strong>Fusion attribute matches:</strong> Define attributes to compare.<br><ul><li><strong>Algorithm:</strong> Enhanced Name Matcher, Jaro-Winkler, LIG3, Dice, Double Metaphone.</li><li><strong>Score:</strong> Similarity threshold (0-100).</li><li><strong>Mandatory:</strong> Require this match?</li></ul><br><strong>Scoring mode:</strong> Use per-attribute thresholds (default) or single overall average score.<br><strong>Auto-correlate:</strong> Automatically merge precise matches without manual review.",
                     "items": [
                         {
                             "key": "matchingConfigs",
@@ -534,14 +534,14 @@
                                             "label": "Attribute",
                                             "type": "text",
                                             "required": true,
-                                            "helpKey": "Attribute name"
+                                            "helpKey": "Identity attribute name to compare. Must exist on identities in scope"
                                         },
                                         {
                                             "key": "algorithm",
                                             "label": "Matching algorithm",
                                             "type": "select",
                                             "required": true,
-                                            "helpKey": "Algorithm used to calculate similarity scores between attribute values when detecting potential duplicate identities. Enhanced Name Matcher: optimized for person names, accounts for common variations and cultural differences. Jaro-Winkler: measures similarity giving more weight to matches at the beginning of strings, ideal for short fields with common typos. LIG3: advanced algorithm combining Levenshtein distance with intelligent gap penalties, token-based matching, and positional weighting, excellent for international names with accents and multi-word fields with missing components or formatting differences. Dice: calculates similarity based on shared bigrams (two-character sequences), suitable for longer text fields. Double Metaphone: phonetic algorithm generating codes for similar-sounding strings, ideal for fields with varying spellings but similar pronunciation.",
+                                            "helpKey": "Similarity algorithm. Enhanced Name Matcher (names), Jaro-Winkler (typos/short), LIG3 (advanced/intl), Dice (long text), Double Metaphone (phonetic)",
                                             "options": [
                                                 {
                                                     "label": "Enhanced Name Matcher",
@@ -584,14 +584,14 @@
                                             "label": "Similarity score [0-100]",
                                             "type": "number",
                                             "required": true,
-                                            "helpKey": "Minimum similarity score threshold (0-100) for this attribute when detecting potential duplicate identities"
+                                            "helpKey": "Minimum similarity score (0-100). Required when not using overall score mode. If mandatory, score must be >= threshold"
                                         },
                                         {
                                             "key": "mandatory",
                                             "label": "Mandatory match?",
                                             "type": "toggle",
                                             "required": false,
-                                            "helpKey": "Require this attribute to match before considering identities as potential duplicates"
+                                            "helpKey": "Require this attribute to match? If No, all attributes are treated as mandatory if none are marked mandatory"
                                         }
                                     ]
                                 }
@@ -602,7 +602,7 @@
                             "label": "Use overall fusion similarity score for all attributes?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Use a single overall similarity score (calculated as the average of per-attribute similarity scores from their respective algorithms) instead of per-attribute scores for detecting potential duplicate identities"
+                            "helpKey": "Use single overall score instead of per-attribute thresholds? When enabled, only the overall (average) threshold must be met"
                         },
                         {
                             "key": "fusionAverageScore",
@@ -611,49 +611,49 @@
                             "parentValue": "true",
                             "type": "number",
                             "required": true,
-                            "helpKey": "Minimum overall similarity score threshold (0-100) for automatically correlating identities when overall score mode is enabled"
+                            "helpKey": "Minimum overall similarity score for auto-correlation. Only used when \"Use overall fusion similarity score\" is enabled"
                         },
                         {
                             "key": "fusionMergingIdentical",
                             "label": "Automatically correlate if identical?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Automatically merge identities when their attributes meet the similarity criteria and are effectively identical, without requiring manual review"
+                            "helpKey": "Auto-merge when attributes meet criteria without manual review? Use when confident in algorithm and thresholds"
                         }
                     ]
                 },
                 {
                     "type": "section",
                     "sectionTitle": "Review Settings",
-                    "sectionHelpMessage": "<strong>Configure the manual review form for potential duplicate identities.</strong><br><br>Use <strong>List of identity attributes to include in form</strong> to choose which identity attributes appear on the manual review form when potential duplicates are detected. This helps reviewers make informed decisions about whether identities should be merged.<br><br>Configure <strong>Manual review expiration days</strong> to set how long a fusion review form remains open before it expires and requires resolution. This ensures timely resolution of potential duplicate identity cases.",
+                    "sectionHelpMessage": "<strong>Configure manual review for potential duplicates.</strong><br><br><ul><li><strong>Form attributes:</strong> Identity attributes shown to reviewers (e.g. name, email, department).</li><li><strong>Expiration:</strong> Days before review form expires (default: 7).</li><li><strong>Global reviewer:</strong> Add source owner as reviewer to all forms (ensures assignment).</li><li><strong>Report:</strong> Email report to owner after aggregation.</li></ul>",
                     "items": [
                         {
                             "key": "fusionFormAttributes",
                             "label": "List of identity attributes to include in form",
                             "type": "list",
                             "required": false,
-                            "helpKey": "List of identity attribute names to display on the manual review form for potential duplicate identities"
+                            "helpKey": "Attributes shown on manual review form. Helps reviewers decide; examples: name, email, department"
                         },
                         {
                             "key": "fusionFormExpirationDays",
                             "label": "Manual review expiration days",
                             "type": "number",
                             "required": true,
-                            "helpKey": "Number of days before a fusion review form expires and requires resolution"
+                            "helpKey": "Days before review form expires. Default: 7; ensures timely resolution"
                         },
                         {
                             "key": "fusionOwnerIsGlobalReviewer",
                             "label": "Owner is global reviewer?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "If enabled, the owner of the fusion source will be added as a global reviewer to all fusion review forms"
+                            "helpKey": "Add Fusion source owner as reviewer to all forms? Ensures at least one reviewer is always assigned"
                         },
                         {
                             "key": "fusionReportOnAggregation",
                             "label": "Send report to owner on aggregation?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Send a report to the fusion source owner on each aggregation run"
+                            "helpKey": "Email report to owner after each aggregation? Includes potential duplicates and processing summary"
                         }
                     ]
                 }
@@ -666,14 +666,14 @@
                 {
                     "type": "section",
                     "sectionTitle": "Developer Settings",
-                    "sectionHelpMessage": "<strong>Advanced options for development and troubleshooting.</strong><br><br>Use <strong>Reset accounts?</strong> during testing or troubleshooting to force the connector to rebuild accounts from scratch on the next run. This can help validate configuration changes but should be used carefully in production environments.",
+                    "sectionHelpMessage": "<strong>Advanced options for troubleshooting.</strong><br><br><ul><li><strong>Reset accounts:</strong> Force rebuild from scratch (Caution in production).</li><li><strong>Concurrency check:</strong> Prevent concurrent aggregations (Default: true).</li><li><strong>External logging:</strong> Send logs to external service (Splunk, etc.) for monitoring.</li></ul>",
                     "items": [
                         {
                             "key": "reset",
                             "label": "Reset accounts?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Force the connector to rebuild accounts from scratch on the next run (use during testing or troubleshooting, use carefully in production)"
+                            "helpKey": "Force rebuild of all Fusion accounts from scratch on next run. Use with caution in production; disable after one run"
                         },
                         {
                             "key": "managedAccountsBatchSize",
@@ -687,14 +687,14 @@
                             "label": "Enable concurrency check?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Prevent concurrent account aggregations by setting a processing lock on the source. When enabled, an aggregation that finds a prior lock will automatically reset it and return an error asking you to verify no other aggregation is running before retrying. Enabled by default."
+                            "helpKey": "Prevent concurrent account aggregations. Default: true. Auto-resets locked state if found"
                         },
                         {
                             "key": "externalLoggingEnabled",
                             "label": "Enable external logging?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Send connector logs to an external logging service for centralized monitoring and analysis"
+                            "helpKey": "Send connector logs to external endpoint. For centralized monitoring"
                         },
                         {
                             "key": "externalLoggingUrl",
@@ -737,21 +737,21 @@
                 {
                     "type": "section",
                     "sectionTitle": "Advanced Connection Settings",
-                    "sectionHelpMessage": "<strong>Fine-tune API request handling and queue management.</strong><br><br>Configure <strong>Provisioning timeout</strong> to set the maximum time in seconds to wait for provisioning operations to complete.<br><br>Enable <strong>Queue</strong> to use queue management for API requests, allowing you to control rate limiting and concurrency. When enabled, you can configure maximum concurrent requests and requests per second.<br><br>Enable <strong>Retry</strong> to automatically retry failed API requests. When enabled, you can configure the maximum number of retry attempts.<br><br>Configure <strong>Processing wait time</strong> to set the interval (in seconds) between keep-alive signals during account list and account update operations; prevents timeouts on long-running runs.<br><br>Set <strong>Maximum concurrent requests</strong> to control how many API requests can run simultaneously (only used when queue is enabled).<br><br>Configure <strong>Retry delay</strong> to set the base delay (in milliseconds) between retry attempts for failed requests. For HTTP 429 responses, the retry delay is automatically calculated from the retry-after header.<br><br>Use <strong>Batch size</strong> to specify how many requests to include in a single processing batch.<br><br>Enable <strong>Batching</strong> to allow requests to be grouped and processed together for better efficiency.<br><br>Enable <strong>Priority processing</strong> to use prioritization when processing the queue, allowing more important requests to be handled first (enabled by default when queue is enabled).",
+                    "sectionHelpMessage": "<strong>Fine-tune API and queue behavior.</strong><br><br><ul><li><strong>Provisioning timeout:</strong> Max wait for operations (default: 300s).</li><li><strong>Queue:</strong> Enable rate limiting and concurrency control.</li><li><strong>Retry:</strong> Auto-retry failed requests (recommended).</li><li><strong>Processing wait time:</strong> Keep-alive interval for long operations.</li><li><strong>Batching:</strong> Group requests for efficiency.</li></ul>",
                     "items": [
                         {
                             "key": "provisioningTimeout",
                             "label": "Provisioning timeout (seconds)",
                             "type": "number",
                             "required": true,
-                            "helpKey": "Maximum time in seconds to wait for provisioning operations to complete"
+                            "helpKey": "Maximum wait time for provisioning operations. Default: 300; increase for large batches or slow APIs"
                         },
                         {
                             "key": "enableQueue",
                             "label": "Enable queue?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Enable queue management for API requests with rate limiting and concurrency control"
+                            "helpKey": "Enable queue management for API requests. Enables rate limiting and concurrency control"
                         },
                         {
                             "key": "maxConcurrentRequests",
@@ -762,7 +762,7 @@
                             "max": "10",
                             "parentKey": "enableQueue",
                             "parentValue": "true",
-                            "helpKey": "Maximum number of API requests to run concurrently (only used when queue is enabled)"
+                            "helpKey": "Maximum simultaneous API requests. Default: 10; adjust based on API capacity"
                         },
                         {
                             "key": "requestsPerSecond",
@@ -773,14 +773,14 @@
                             "max": "12",
                             "parentKey": "enableQueue",
                             "parentValue": "true",
-                            "helpKey": "Maximum number of API requests per second (throttling, only used when queue is enabled)"
+                            "helpKey": "Maximum API requests per second (throttling). Default: 10; adjust based on API capacity"
                         },
                         {
                             "key": "enableRetry",
                             "label": "Enable retry?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Enable automatic retry logic for failed API requests"
+                            "helpKey": "Enable automatic retry for failed API requests. Recommended for production"
                         },
                         {
                             "key": "maxRetries",
@@ -791,7 +791,7 @@
                             "max": "20",
                             "parentKey": "enableRetry",
                             "parentValue": "true",
-                            "helpKey": "Maximum number of retry attempts for failed API requests (only used when retry is enabled)"
+                            "helpKey": "Maximum retry attempts for failed API requests. Default: 20"
                         },
                         {
                             "key": "processingWait",
@@ -799,7 +799,7 @@
                             "type": "number",
                             "required": true,
                             "min": "0",
-                            "helpKey": "Interval in seconds between keep-alive signals during account list and account update; prevents timeouts on long-running operations"
+                            "helpKey": "Interval between keep-alive signals during long-running operations. Default: 60"
                         },
                         {
                             "key": "retryDelay",
@@ -807,14 +807,14 @@
                             "type": "number",
                             "required": true,
                             "min": "0",
-                            "helpKey": "Base delay between retry attempts for failed requests in milliseconds"
+                            "helpKey": "Base delay between retry attempts (ms). Default: 1000; uses Retry-After header if present"
                         },
                         {
                             "key": "enableBatching",
                             "label": "Enable batching?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Enable batching of requests in the queue for better efficiency and throughput"
+                            "helpKey": "Group requests in queue for better throughput. Can improve efficiency for bulk operations"
                         },
                         {
                             "key": "batchSize",
@@ -825,7 +825,7 @@
                             "required": true,
                             "min": "1",
                             "max": "250",
-                            "helpKey": "Number of requests to include in a single processing batch (only used when batching is enabled)"
+                            "helpKey": "Requests per batch. Default: 250"
                         },
                         {
                             "key": "enablePriority",
@@ -839,14 +839,14 @@
                 {
                     "type": "section",
                     "sectionTitle": "Proxy Settings",
-                    "sectionHelpMessage": "<strong>Enable proxy mode to delegate processing to an external endpoint.</strong><br><br>Turn on <strong>Enable proxy mode?</strong> to have the connector forward all processing to a custom external service instead of performing processing locally.<br><br>When proxy mode is enabled, configure the <strong>Proxy URL</strong> for the external endpoint and a <strong>Proxy password</strong> or secret used by the external service. Set <strong>PROXY_PASSWORD</strong> environment variable to the same value on your proxy server.",
+                    "sectionHelpMessage": "<strong>Delegate processing to external server.</strong><br><br>Run connector logic on your own infrastructure.<br><ul><li><strong>Proxy URL:</strong> External endpoint.</li><li><strong>Proxy password:</strong> Secret for authentication (must match PROXY_PASSWORD env var on proxy).</li></ul>",
                     "items": [
                         {
                             "key": "proxyEnabled",
                             "label": "Enable proxy mode?",
                             "type": "toggle",
                             "required": false,
-                            "helpKey": "Enable proxy mode to delegate all processing to an external endpoint"
+                            "helpKey": "Delegate all processing to external endpoint. For running connector logic on your own infrastructure"
                         },
                         {
                             "key": "proxyUrl",
@@ -855,7 +855,7 @@
                             "required": false,
                             "parentKey": "proxyEnabled",
                             "parentValue": "true",
-                            "helpKey": "URL of the external endpoint that will handle processing when proxy mode is enabled"
+                            "helpKey": "URL of external proxy endpoint. Must accept POST with command type, input, and config"
                         },
                         {
                             "key": "proxyPassword",
@@ -864,7 +864,7 @@
                             "required": true,
                             "parentKey": "proxyEnabled",
                             "parentValue": "true",
-                            "helpKey": "Password or secret used by the external endpoint when proxy mode is enabled. Set PROXY_PASSWORD environment variable to the same value on your proxy server."
+                            "helpKey": "Secret for proxy authentication. Set same value as PROXY_PASSWORD environment variable on proxy server"
                         }
                     ]
                 }

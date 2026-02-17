@@ -1,4 +1,5 @@
 import FormData from 'form-data'
+import https from 'https'
 import { ApiQueue } from './queue'
 import { QueueConfig, QueuePriority, QueueStats } from './types'
 import { LogService } from '../logService'
@@ -63,7 +64,11 @@ export class ClientService {
         // Only enable retry in axios config if enableRetry is true
         const maxRetries = enableRetry ? (fusionConfig.maxRetries ?? fusionConfig.retriesConstant) : 0
         const retriesConfig = createRetriesConfig(maxRetries)
-        this.config = new Configuration({ ...fusionConfig, tokenUrl })
+
+        // Inject https agent with keepAlive: true to reuse TCP connections
+        const agent = new https.Agent({ keepAlive: true })
+
+        this.config = new Configuration({ ...fusionConfig, tokenUrl, baseOptions: { httpsAgent: agent } } as any)
         this.config.retriesConfig = retriesConfig
         // form-data extends EventEmitter; with axios-retry, retries add error listeners to the same
         // FormData instance. Set formDataCtor so multipart API calls create instances with higher limit.
@@ -101,11 +106,11 @@ export class ClientService {
             this.startStatsLogging()
             this.log.info(
                 `API client ready: queue ${queueConfig.requestsPerSecond} req/s, ` +
-                `max concurrent: ${queueConfig.maxConcurrentRequests}, retries: ${queueConfig.maxRetries}`
+                `max concurrent: ${queueConfig.maxConcurrentRequests}, retries: ${queueConfig.maxRetries}, keep-alive: true`
             )
         } else {
             this.queue = null
-            this.log.info('API client ready (direct calls, no queue)')
+            this.log.info('API client ready (direct calls, no queue, keep-alive: true)')
         }
     }
 
@@ -195,13 +200,18 @@ export class ClientService {
      * @param apiFunction - Async function that performs the API call
      * @param priority - Queue priority when queue is enabled
      * @param context - Optional hint for error logs (e.g. "SourceService>saveBatchCumulativeCount")
+     * @param abortSignal - Optional signal to abort the request
      */
     public async execute<TResponse>(
         apiFunction: () => Promise<TResponse>,
         priority: QueuePriority = QueuePriority.NORMAL,
-        context?: string
+        context?: string,
+        abortSignal?: AbortSignal
     ): Promise<TResponse | undefined> {
         const fn = () => {
+            if (abortSignal?.aborted) {
+                return Promise.reject(new Error('Aborted'))
+            }
             if (!this.requestTimeoutMs) {
                 return apiFunction()
             }
@@ -218,7 +228,7 @@ export class ClientService {
 
         try {
             if (this.queue) {
-                return await this.queue.enqueue(() => fn(), { priority })
+                return await this.queue.enqueue(() => fn(), { priority, abortSignal })
             }
 
             return await fn()
@@ -477,5 +487,97 @@ export class ClientService {
                 )
             }
         }, STATS_LOGGING_INTERVAL_MS)
+    }
+
+    /**
+     * Paginate API calls in parallel using a generator to yield pages as they arrive.
+     * Use this for large datasets where sequential pagination is too slow and excessive memory usage
+     * from accumulating all results is a concern.
+     *
+     * Strategy:
+     * 1. Fetch the first page with count=true to get X-Total-Count.
+     * 2. Calculate remaining pages/offsets.
+     * 3. Fetch remaining pages in parallel batches to maximize throughput.
+     * 4. Yield items from each page as soon as the request completes.
+     *
+     * @param callFunction - Function that accepts request parameters and returns a promise with { data: T[] }
+     * @param baseParameters - Base request parameters
+     * @param priority - Queue priority
+     * @param context - Context hint for logs
+     * @param abortSignal - Signal to abort the operation
+     * @yields Arrays of items (pages) as they are fetched
+     */
+    public async *paginateParallel<T, TRequestParams = any>(
+        callFunction: (requestParameters: TRequestParams) => Promise<{ data: T[]; headers?: any }>,
+        baseParameters: Partial<TRequestParams> = {},
+        priority: QueuePriority = QueuePriority.NORMAL,
+        context?: string,
+        abortSignal?: AbortSignal
+    ): AsyncGenerator<T[], void, unknown> {
+        const pageSize = this.pageSize
+        const SAILPOINT_LIST_MAX = 250
+        const effectivePageSize = Math.min(pageSize, SAILPOINT_LIST_MAX)
+        const batchSize = 10 // Concurrent page requests
+
+        // Initial request to get total count
+        const initialParams = {
+            ...baseParameters,
+            limit: effectivePageSize,
+            offset: 0,
+            count: true,
+        } as TRequestParams
+
+        const initialCtx = context ? `${context} [parallel-init]` : 'list [parallel-init]'
+        const initialResponse = await this.execute<{ data: T[]; headers?: any }>(
+            () => callFunction(initialParams),
+            priority,
+            initialCtx,
+            abortSignal
+        )
+
+        if (!initialResponse) return
+
+        const initialItems = initialResponse.data || []
+        yield initialItems
+
+        const totalCount = parseInt(initialResponse.headers?.['x-total-count'] || '0', 10)
+        // If no total count or total <= page size, we are done
+        if (!totalCount || totalCount <= initialItems.length) {
+            return
+        }
+
+        // Calculate offsets for remaining pages
+        const offsets: number[] = []
+        for (let offset = initialItems.length; offset < totalCount; offset += effectivePageSize) {
+            offsets.push(offset)
+        }
+
+        // Process offsets in batches
+        for (let i = 0; i < offsets.length; i += batchSize) {
+            if (abortSignal?.aborted) return
+
+            const batchOffsets = offsets.slice(i, i + batchSize)
+            const promises = batchOffsets.map((offset) => {
+                const params = {
+                    ...baseParameters,
+                    limit: effectivePageSize,
+                    offset,
+                } as TRequestParams
+                const ctx = context ? `${context} [offset ${offset}]` : `list [offset ${offset}]`
+                return this.execute<{ data: T[] }>(
+                    () => callFunction(params),
+                    priority,
+                    ctx,
+                    abortSignal
+                )
+            })
+
+            const responses = await Promise.all(promises)
+            for (const response of responses) {
+                if (response?.data && response.data.length > 0) {
+                    yield response.data
+                }
+            }
+        }
     }
 }

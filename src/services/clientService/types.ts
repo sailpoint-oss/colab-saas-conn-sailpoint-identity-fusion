@@ -20,6 +20,7 @@ export interface QueueItem<T = any> {
     retryCount: number
     maxRetries: number
     createdAt: number
+    abortSignal?: AbortSignal
 }
 
 /**

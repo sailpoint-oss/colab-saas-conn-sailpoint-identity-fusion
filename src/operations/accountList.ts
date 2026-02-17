@@ -49,6 +49,7 @@ export const accountList = async (
     try {
         log.info('Starting aggregation')
         const timer = log.timer()
+        const abortController = new AbortController()
         let phase = 1
 
         await sources.fetchAllSources()
@@ -84,7 +85,7 @@ export const accountList = async (
         const fetchPromises = [
             sources.fetchFusionAccounts(),
             identities.fetchIdentities(),
-            sources.fetchManagedAccounts(),
+            sources.fetchManagedAccounts(abortController.signal),
             messaging.fetchSender(),
         ]
 

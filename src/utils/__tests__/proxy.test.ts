@@ -42,6 +42,11 @@ describe('proxy utils', () => {
             const config = { proxyEnabled: true, proxyUrl: undefined } as any
             expect(isProxyMode(config)).toBe(false)
         })
+
+        it('should return true when isProxy is true in config', () => {
+            const config = { isProxy: true } as any
+            expect(isProxyMode(config)).toBe(true)
+        })
     })
 
     describe('isProxyService', () => {

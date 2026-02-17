@@ -39,12 +39,13 @@ const isValidObject = (obj: any): boolean => {
 
 // Proxy Client Mode: Forward requests to external connector
 export const isProxyMode = (config: FusionConfig): boolean => {
-    const proxyEnabled = config.proxyEnabled ?? false
-    const hasProxyUrl = config.proxyUrl !== undefined && config.proxyUrl !== ''
-    const isServer = process.env.PROXY_PASSWORD !== undefined
+    // const proxyEnabled = config.proxyEnabled ?? false
+    // const hasProxyUrl = config.proxyUrl !== undefined && config.proxyUrl !== ''
+    // const isServer = process.env.PROXY_PASSWORD !== undefined
 
-    // Client mode: has proxyUrl and is NOT the server
-    return proxyEnabled && hasProxyUrl && !isServer
+    // Client mode: has proxyUrl and is NOT the server (unless explicitly flagged as proxy via internal config)
+    // return (proxyEnabled && hasProxyUrl && !isServer) || (config.isProxy === true)
+    return config.isProxy === true
 }
 
 // Proxy Server Mode: Receive and process requests from internal connector
@@ -76,8 +77,10 @@ export const proxy: CommandHandler = async (context, input, res) => {
             throw new ConnectorError('Proxy mode is not enabled or proxy URL is missing')
         }
         const { proxyUrl } = config
-        // Disable proxy mode in the config sent to external connector to prevent infinite loop
-        const externalConfig = { ...config, proxyEnabled: false }
+        // Inject internal isProxy flag to config sent to external connector
+        // We keep proxyEnabled=true so the proxy knows it's a proxy, but the isProxy flag
+        // prevents infinite recursion in isProxyMode check
+        const externalConfig = { ...config, isProxy: true }
         const body = {
             type: context.commandType,
             input,
@@ -182,7 +185,7 @@ export const proxy: CommandHandler = async (context, input, res) => {
                     res.send(parsed)
                     return
                 }
-            } catch (e) {
+            } catch {
                 logger.warn('Failed to parse response as JSON array, trying NDJSON')
             }
         }

@@ -1,5 +1,0 @@
-- Create test artefacts
-- ~~Implement Reset processing flag in case of unfinished processing?~~ (Done - self-healing processing lock implemented)
-- Rethink source account filter
-- Consider enabled/disabled switch for card options
-- Implement performance logging (report???)

@@ -33,3 +33,6 @@ config.json
 logs/
 remote-logs.jsonl
 
+# Dev notes
+TODO.md
+

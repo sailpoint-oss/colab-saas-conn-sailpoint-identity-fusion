@@ -88,6 +88,9 @@ export class IdentityService {
                 query: {
                     query: this.identityScopeQuery,
                 },
+                queryResultFilter: {
+                    includes: ['id', 'name', 'displayName', 'email', 'attributes', 'accounts', 'disabled', 'protected'],
+                },
                 includeNested: true,
             }
 
@@ -131,6 +134,9 @@ export class IdentityService {
             query: {
                 query: `id:"${id}"`,
             },
+            queryResultFilter: {
+                includes: ['id', 'name', 'displayName', 'email', 'attributes', 'accounts', 'disabled', 'protected'],
+            },
             includeNested: true,
         }
 
@@ -167,6 +173,9 @@ export class IdentityService {
             indices: ['identities'],
             query: {
                 query: `name.exact:"${name}"`,
+            },
+            queryResultFilter: {
+                includes: ['id', 'name', 'displayName', 'email', 'attributes', 'accounts', 'disabled', 'protected'],
             },
             includeNested: true,
         }

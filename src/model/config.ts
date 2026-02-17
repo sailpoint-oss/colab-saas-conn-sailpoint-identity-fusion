@@ -343,6 +343,7 @@ export interface InternalConfig {
      * and cleared on reset.
      */
     readonly batchCumulativeCount?: Record<string, number>
+    readonly isProxy?: boolean
 }
 
 // ============================================================================

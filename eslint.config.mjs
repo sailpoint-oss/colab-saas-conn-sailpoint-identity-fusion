@@ -3,6 +3,9 @@ import pluginJs from '@eslint/js'
 import tseslint from 'typescript-eslint'
 
 export default [
+    {
+        ignores: ['dist/', 'log-server.js', 'babel.config.cjs', 'jest.config.js'],
+    },
     { files: ['**/*.{js,mjs,cjs,ts}'] },
     { languageOptions: { globals: globals.browser } },
     pluginJs.configs.recommended,

@@ -348,6 +348,39 @@ export class SourceService {
     }
 
     /**
+     * Fetch accounts as an async generator using parallel pagination.
+     */
+    public async *fetchAccountsBySourceIdGenerator(
+        sourceId: string,
+        limit?: number,
+        abortSignal?: AbortSignal
+    ): AsyncGenerator<Account[], void, unknown> {
+        const { accountsApi } = this.client
+        const sourceInfo = this.sourcesById.get(sourceId)
+        assert(sourceInfo, `Source not found for id: ${sourceId}`)
+
+        const filterParts: string[] = [`sourceId eq "${sourceId}"`]
+        if (sourceInfo.isManaged && sourceInfo.config?.accountFilter) {
+            filterParts.push(`(${sourceInfo.config.accountFilter})`)
+        }
+        const filters = filterParts.join(' and ')
+        const sorters = 'created'
+
+        const requestParameters: AccountsApiListAccountsRequest = {
+            filters,
+            limit,
+            sorters,
+        }
+
+        const listAccounts = async (params: AccountsApiListAccountsRequest) => {
+            return await accountsApi.listAccounts(params)
+        }
+        const ctx = `SourceService>fetchAccountsBySourceIdGenerator ${sourceInfo.name}`
+
+        yield* this.client.paginateParallel(listAccounts, requestParameters, undefined, ctx, abortSignal)
+    }
+
+    /**
      * Fetch and cache fusion accounts
      */
     public async fetchFusionAccounts(): Promise<void> {
@@ -376,10 +409,10 @@ export class SourceService {
      * After fetching, the actual number of accounts retrieved is stored as the
      * new cumulative count for that source.
      */
-    public async fetchManagedAccounts(): Promise<void> {
+    public async fetchManagedAccounts(abortSignal?: AbortSignal): Promise<void> {
         this.log.debug(`Fetching managed accounts from ${this.managedSources.length} source(s)`)
 
-        // Compute effective limits per source (cumulative batch offset + accountLimit)
+        // Compute effective limits per source
         const sourcesWithLimits = this.managedSources.map((s) => {
             const baseLimit = s.config?.accountLimit
             let effectiveLimit: number | undefined
@@ -387,44 +420,49 @@ export class SourceService {
                 const cumulativeCount = this.batchCumulativeCount[s.name] ?? 0
                 effectiveLimit = cumulativeCount + baseLimit
                 this.log.debug(
-                    `Source ${s.name}: accountLimit=${baseLimit}, cumulativeCount=${cumulativeCount}, effectiveLimit=${effectiveLimit}`
+                    `Source ${s.name}: effectiveLimit=${effectiveLimit}`
                 )
             }
             return { source: s, effectiveLimit }
         })
 
-        const accountBatches: Account[][] = []
         try {
-            for (const { source, effectiveLimit } of sourcesWithLimits) {
-                this.log.info(`Fetching accounts from source: ${source.name}`)
-                const accounts = await this.fetchAccountsBySourceId(source.id, effectiveLimit)
-                this.log.info(`Source ${source.name}: fetched ${accounts.length} account(s)`)
-                accountBatches.push(accounts)
-            }
+            // Fetch from all sources in parallel
+            await Promise.all(
+                sourcesWithLimits.map(async ({ source, effectiveLimit }) => {
+                    this.log.info(`Fetching accounts from source: ${source.name}`)
+                    let fetchedCount = 0
+
+                    // Consume generator and populate cache incrementally
+                    for await (const batch of this.fetchAccountsBySourceIdGenerator(source.id, effectiveLimit, abortSignal)) {
+                        for (const account of batch) {
+                            if (account.id) {
+                                this.managedAccountsById.set(account.id, account)
+                            }
+                        }
+                        fetchedCount += batch.length
+                    }
+
+                    this.log.info(`Source ${source.name}: fetched ${fetchedCount} account(s)`)
+
+                    // Update cumulative count
+                    if (source.config?.accountLimit !== undefined) {
+                        this.batchCumulativeCount[source.name] = fetchedCount
+                        this.log.debug(
+                            `Source ${source.name}: updated cumulative count to ${fetchedCount}`
+                        )
+                    }
+                })
+            )
+            this.log.debug(`Total managed accounts loaded: ${this.managedAccountsById.size}`)
         } catch (error) {
             if (error instanceof ConnectorError) throw error
             const detail = error instanceof Error ? error.message : String(error)
             throw new ConnectorError(
-                `Failed to fetch managed accounts from configured sources: ${detail}`,
+                `Failed to fetch managed accounts: ${detail}`,
                 ConnectorErrorType.Generic
             )
         }
-
-        // Update cumulative counts with actual fetched counts per source
-        for (let i = 0; i < sourcesWithLimits.length; i++) {
-            const { source } = sourcesWithLimits[i]
-            if (source.config?.accountLimit !== undefined) {
-                const fetchedCount = accountBatches[i].length
-                this.batchCumulativeCount[source.name] = fetchedCount
-                this.log.debug(
-                    `Source ${source.name}: fetched ${fetchedCount} account(s), updated cumulative count`
-                )
-            }
-        }
-
-        const accounts = accountBatches.flat()
-        this.managedAccountsById = new Map(accounts.map((account) => [account.id!, account]))
-        this.log.debug(`Fetched ${this.managedAccountsById.size} managed account(s)`)
     }
 
     // ------------------------------------------------------------------------
