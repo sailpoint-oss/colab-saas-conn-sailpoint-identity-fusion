@@ -187,7 +187,7 @@
                 {
                     "type": "section",
                     "sectionTitle": "Processing Control",
-                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained.</strong><br><br><ul><li><strong>Maximum history messages:</strong> Limit history entries per account (default: 10).</li><li><strong>Delete accounts...:</strong> Remove Fusion account when all source accounts are gone.</li><li><strong>Correlate missing...:</strong> Attempt to correlate new/missing source accounts each run (default: true).</li><li><strong>Force attribute refresh...:</strong> Force Normal-type attributes to refresh every run (expensive).</li><li><strong>Skip accounts...:</strong> Skip processing if fusion identity attribute is missing.</li></ul>",
+                    "sectionHelpMessage": "<strong>Control how Identity Fusion accounts are maintained.</strong><br><br><ul><li><strong>Maximum history messages:</strong> Limit history entries per account (default: 10).</li><li><strong>Delete accounts...:</strong> Remove Fusion account when all source accounts are gone.</li><li><strong>Correlate missing...:</strong> Attempt to correlate new/missing source accounts each run (default: true).</li><li><strong>Force attribute refresh...:</strong> Force Normal-type attributes to refresh every run (expensive).</li><li><strong>Skip accounts...:</strong> Skip processing if native identity attribute is missing.</li></ul>",
                     "items": [
                         {
                             "key": "maxHistoryMessages",

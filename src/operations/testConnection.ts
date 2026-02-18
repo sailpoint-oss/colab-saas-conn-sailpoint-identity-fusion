@@ -17,11 +17,15 @@ export const testConnection = async (
     res: Response<StdTestConnectionOutput>
 ) => {
     ServiceRegistry.setCurrent(serviceRegistry)
-    const { log } = serviceRegistry
+    const { log, sources } = serviceRegistry
 
     try {
         log.info('Testing connection')
         const timer = log.timer()
+
+        // Verify access to the Fusion source and that configured managed sources exist
+        await sources.fetchAllSources()
+        timer.phase('Verified Fusion source and managed sources')
 
         res.send({})
         timer.end('✓ Test connection completed')

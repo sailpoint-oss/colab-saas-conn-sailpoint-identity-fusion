@@ -56,10 +56,10 @@ export const accountCreate = async (
         // 2. Fetch all fusion accounts and register unique attribute values
         await sources.fetchFusionAccounts()
         await attributes.initializeCounters()
-        const fusionAccounts = await fusion.preProcessFusionAccounts()
-        for (const fa of fusionAccounts) {
-            await attributes.registerUniqueAttributes(fa)
-        }
+        // Bulk-register unique values directly from raw accounts (lightweight, no FusionAccount hydration)
+        attributes.registerUniqueValuesFromRawAccounts(sources.fusionAccounts)
+        // Still need preProcessFusionAccounts to populate fusionIdentityMap for duplicate checking
+        await fusion.preProcessFusionAccounts()
         timer.phase('Step 2: Loading fusion accounts and registering unique values')
 
         // 3. Process the identity and refresh unique attributes

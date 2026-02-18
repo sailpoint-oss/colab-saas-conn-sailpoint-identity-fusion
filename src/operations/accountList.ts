@@ -8,18 +8,18 @@ import { generateReport } from './helpers/generateReport'
  *
  * Processing Flow (Work Queue Pattern):
  * 1. SETUP: Load sources, schema, and initialize attribute counters
- * 2. FETCH: Load fusion accounts, identities, managed accounts in parallel
+ * 2. FETCH: Load fusion accounts, identities, managed accounts, form data, and sender in parallel
  * 3. DEPLETION: Process and remove accounts from the work queue
- *    a. fetchFormData - Load pending forms + extract decisions
- *    b. processFusionAccounts - Process existing fusion accounts (work-queue depletion)
- *    c. processIdentities - Process identities (create missing fusion identities)
- *    d. processFusionIdentityDecisions - Process "new identity" decisions
- *    e. processManagedAccounts - Process remaining uncorrelated accounts (deduplication)
- *    f. reconcilePendingFormState - Recalculate transient form-derived entitlements (candidate + reviews)
- *    g. refreshUniqueAttributes - Global unique attribute refresh for all fusion accounts
+ *    a. processFusionAccounts - Process existing fusion accounts (work-queue depletion)
+ *    b. processIdentities - Process identities (create missing fusion identities)
+ *    c. processFusionIdentityDecisions - Process "new identity" decisions
+ *    d. processManagedAccounts - Process remaining uncorrelated accounts (deduplication)
+ *    e. reconcilePendingFormState - Recalculate transient form-derived entitlements (candidate + reviews)
+ *    f. refreshUniqueAttributes - Global unique attribute refresh for all fusion accounts
  * 4. REPORT: Generate fusion report (conditional)
- * 5. OUTPUT: Send final fusion account list to platform
- * 6. CLEANUP: Clear caches and save state
+ * 5. SAVE: Save attribute state and batch cumulative counts
+ * 6. OUTPUT: Send final fusion account list to platform
+ * 7. CLEANUP: Clear caches
  *
  * Attribute Evaluation Order:
  * - Normal attributes are created during steps 3b-3e (per-account processing inside

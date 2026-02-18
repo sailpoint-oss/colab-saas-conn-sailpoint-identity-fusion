@@ -63,6 +63,10 @@ describe('FusionService', () => {
             get: jest.fn(() => new Map()),
             configurable: true
         })
+        Object.defineProperty(mockSources, 'managedAccountsByIdentityId', {
+            get: jest.fn(() => new Map()),
+            configurable: true
+        })
         Object.defineProperty(mockSources, 'fusionAccounts', {
             get: jest.fn(() => []),
             configurable: true

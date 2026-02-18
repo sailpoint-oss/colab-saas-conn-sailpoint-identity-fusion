@@ -304,9 +304,14 @@ export class SchemaService {
         const { managedSources } = this.sources
 
         const accountSchemaAttributes: SchemaAttribute[] = []
-        for (const source of managedSources.reverse()) {
-            const accountSchema = await this.fetchAccountSchema(source.id)
-            const attributes = this.getAccountSchemaAttributes(accountSchema, source.name)
+        // Fetch schemas from all managed sources in parallel
+        const schemaResults = await Promise.all(
+            managedSources.reverse().map(async (source) => {
+                const accountSchema = await this.fetchAccountSchema(source.id)
+                return this.getAccountSchemaAttributes(accountSchema, source.name)
+            })
+        )
+        for (const attributes of schemaResults) {
             accountSchemaAttributes.push(...attributes)
         }
 

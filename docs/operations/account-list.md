@@ -11,41 +11,49 @@ The Account List operation is the main entry point for identity fusion. It perfo
     - Acquires a **process lock** to prevent concurrent aggregations.
     - Checks for a "Reset" flag; if detected, it clears existing forms and resets state instead of performing aggregation.
     - Sets the fusion account schema.
-    - Aggregates all managed sources to build the initial pool of accounts.
+    - Aggregates managed sources enabled for aggregation if they were not aggregated after the latest Fusion aggregation.
     - Initializes attribute counters.
 
 2.  **Data Fetching (Parallel)**:
     - Fetches the following data in parallel to optimize performance:
         - Existing fusion accounts.
         - Identities (from ISC).
-        - Managed accounts (from source systems).
-        - Message sender configuration.
-        - Pending form data.
+        - Managed accounts (from configured sources).
+        - Message sender workflow.
+        - Current form data, including forms and associated form instances.
+    - If `fusionReportOnAggregation` is enabled and the fusion owner identity was not loaded in the parallel fetch, it is fetched separately.
 
 3.  **Fusion Account Processing** (attribute mapping + normal definitions):
-    - Processes all _existing_ fusion accounts. This step "depletes" the matching managed accounts from the work queue (the map of all managed accounts).
-    - For each account: attribute mapping is applied first, then **normal** attribute definitions are evaluated. Normal attribute values feed into the Velocity context and are available for Fusion matching/scoring.
+    - Processes all *existing* fusion accounts. This step "depletes" the matching managed accounts from the work queue (the map of all managed accounts).
+    - For each account:
+        - Identity layer is applied to match collected identities with Fusion accounts.
+        - Managed account layer is applied to match collected managed accounts with Fusion accounts.
+        - Assignment decision layer is applied to match Fusion reviews that resulted in identity assignment.
+        - Attribute mapping is applied first, then **normal** attribute definitions are evaluated. Normal attribute values feed into the Velocity context and are available for Fusion matching/scoring.
 
 4.  **Identity Processing** (attribute mapping + normal definitions):
-    - Processes all _identities_. This creates new fusion identities for identities that don't yet have a fusion account but should.
-    - Same attribute mapping + normal definition evaluation as step 3.
+    - Processes all *identities*. This creates new fusion identities for identities that don't yet have a fusion account but should. This step also "depletes" the matching managed accounts from the work queue (the map of all managed accounts).
+    - For each identity:
+        - Managed account layer is applied to match collected managed accounts with Fusion accounts.
+        - Same attribute mapping + normal definition evaluation as step 3.
     - Clears the identity cache to free up memory as it's no longer needed.
 
 5.  **New Identity Decisions**:
-    - Processes "decisions" related to new identities, handling cases where a new identity was discovered or manually approved.
+    - Processes Fusion reviews that resulted in new identities.
 
 6.  **Managed Account Processing (Deduplication)**:
     - Processes any remaining managed accounts in the work queue.
-    - These are accounts that were _not_ matched to an existing fusion account or an identity.
-    - This step handles deduplication and creating "standalone" accounts if configured.
+    - These are accounts that were *not* matched to an existing fusion account or an identity.
+    - This step handles deduplication, if configured, and creates new Fusion accounts if no match or no deduplication is configured.
 
 7.  **Form & Entitlement Reconciliation**:
-    - Reconciles pending form states.
-    - Calculates transient entitlements derived from forms (e.g., "candidate" status or pending reviews).
+    - Updates processed Fusion accounts with review information.
+    - Fusion identities involved in ongoing Fusion reviews are flagged as candidates.
+    - Reviewer identities are updated with their corresponding pending Fusion reviews URL.
 
 8.  **Unique Attribute Refresh** (unique definitions — runs after all matching):
-    - Performs a global refresh of **unique** attributes for all fusion accounts (both existing and newly created).
-    - Unique definitions run _after_ Fusion matching has completed, so they can reference normal attribute values produced in steps 3–6.
+    - Performs a batched global refresh of **unique** attributes for all fusion accounts (both existing and newly created).
+    - Unique definitions run *after* Fusion matching has completed, so they can reference normal attribute values produced in steps 3–6.
     - Ensures uniqueness constraints are met across the entire dataset.
 
 9.  **Reporting (Conditional)**:
@@ -54,12 +62,14 @@ The Account List operation is the main entry point for identity fusion. It perfo
 10. **State Saving & Cleanup**:
     - Saves attribute generation state (counters).
     - Saves batch cumulative counts.
-    - Clears analyzed account caches and manages form cleanup.
+    - Clears analyzed account caches and managed account caches.
+    - Manages form cleanup.
 
 11. **Output Generation**:
     - Iterates through all processed fusion accounts and sends them to ISC.
     - Accounts whose fusion identity attribute is empty are omitted when "Skip accounts with a missing identifier" is enabled (see Behavior Notes).
-    - Releases the process lock.
+    - Clears fusion account caches from memory.
+    - Releases the process lock. The lock is released in a `finally` block, so it is also released if the operation fails after acquisition.
 
 ## Behavior Notes
 

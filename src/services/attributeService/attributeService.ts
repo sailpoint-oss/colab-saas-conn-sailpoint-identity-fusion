@@ -2,6 +2,7 @@ import { FusionConfig, AttributeMap, NormalAttributeDefinition, UniqueAttributeD
 import { LogService } from '../logService'
 import { FusionAccount } from '../../model/account'
 import { SchemaService } from '../schemaService'
+import { Account } from 'sailpoint-api-client'
 import { CompoundKey, CompoundKeyType, SimpleKey, SimpleKeyType, StandardCommand } from '@sailpoint/connector-sdk'
 import { evaluateVelocityTemplate, normalize, padNumber, removeSpaces, switchCase } from './formatting'
 import { LockService } from '../lockService'
@@ -463,6 +464,37 @@ export class AttributeService {
             }
         }
         this.log.debug(`Registered ${values.length} existing value(s) for attribute '${attributeName}'`)
+    }
+
+    /**
+     * Lightweight bulk registration of unique attribute values from raw Account objects.
+     * Reads unique attribute values directly from account.attributes without creating
+     * FusionAccount instances, avoiding the overhead of full object hydration.
+     *
+     * Use this instead of preProcessFusionAccounts + registerUniqueAttributes
+     * for single-account operations (create, enable) where only uniqueness
+     * enforcement is needed.
+     *
+     * @param accounts - Raw Account objects from the platform
+     */
+    public registerUniqueValuesFromRawAccounts(accounts: Account[]): void {
+        if (this.uniqueDefinitions.length === 0) return
+
+        for (const def of this.uniqueDefinitions) {
+            const values: string[] = []
+            for (const account of accounts) {
+                const value = account.attributes?.[def.name]
+                if (value != null && value !== '') {
+                    values.push(String(value))
+                }
+            }
+            this.registerExistingValues(def.name, values)
+        }
+
+        this.log.debug(
+            `Registered unique values from ${accounts.length} raw account(s) ` +
+            `for ${this.uniqueDefinitions.length} unique attribute definition(s)`
+        )
     }
 
 

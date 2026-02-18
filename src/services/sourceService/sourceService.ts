@@ -47,6 +47,9 @@ export class SourceService {
     // 2. Work Queue: Gets depleted as accounts are processed (deleted) in order:
     //    fetchFormData → processFusionAccounts → processIdentities → processManagedAccounts
     public managedAccountsById: Map<string, Account> = new Map()
+    // Secondary index: identityId → Set of account IDs for O(1) identity-based lookups
+    // in addManagedAccountLayer. Kept in sync with managedAccountsById.
+    public managedAccountsByIdentityId: Map<string, Set<string>> = new Map()
     public fusionAccountsByNativeIdentity?: Map<string, Account>
 
     /**
@@ -60,6 +63,7 @@ export class SourceService {
      */
     public clearManagedAccounts(): void {
         this.managedAccountsById.clear()
+        this.managedAccountsByIdentityId.clear()
         this.log.debug('Managed accounts cache cleared from memory')
     }
 
@@ -439,6 +443,14 @@ export class SourceService {
                         for (const account of batch) {
                             if (account.id) {
                                 this.managedAccountsById.set(account.id, account)
+                                if (account.identityId) {
+                                    let idSet = this.managedAccountsByIdentityId.get(account.identityId)
+                                    if (!idSet) {
+                                        idSet = new Set()
+                                        this.managedAccountsByIdentityId.set(account.identityId, idSet)
+                                    }
+                                    idSet.add(account.id)
+                                }
                             }
                         }
                         fetchedCount += batch.length
@@ -505,6 +517,14 @@ export class SourceService {
         }
 
         this.managedAccountsById.set(managedAccount.id!, managedAccount)
+        if (managedAccount.identityId) {
+            let idSet = this.managedAccountsByIdentityId.get(managedAccount.identityId)
+            if (!idSet) {
+                idSet = new Set()
+                this.managedAccountsByIdentityId.set(managedAccount.identityId, idSet)
+            }
+            idSet.add(managedAccount.id!)
+        }
     }
 
     /**

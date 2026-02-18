@@ -890,30 +890,57 @@ export class FusionAccount {
     /**
      * Add managed account layer to this fusion account.
      *
-     * Iterates the shared work queue and claims accounts that belong to this
-     * fusion account.  For each account:
+     * Claims accounts from the shared work queue that belong to this fusion account.
      *
-     * 1. **Identity match** (`account.identityId === this._identityId`):
-     *    the account is correlated — added to `_accountIds` only.
-     * 2. **Previous-run match** (`_previousAccountIds.has(id)`):
-     *    the account was known before but is not identity-matched —
-     *    added to both `_accountIds` and `_missingAccountIds`.
+     * Two-phase matching:
+     * 1. **Identity match** (indexed): Uses `accountsByIdentityId` to find correlated
+     *    accounts in O(1) instead of scanning the full map.
+     * 2. **Previous-run match** (scan): Iterates remaining accounts to find those
+     *    previously associated with this fusion account (`_previousAccountIds`).
      *
-     * Claimed accounts are deleted from the map so subsequent processing
+     * Claimed accounts are deleted from both maps so subsequent processing
      * phases (fusion → identity → managed) only see unprocessed accounts.
      *
-     * @param accountsById - Shared work queue of managed accounts (typically this.sources.managedAccountsById)
+     * @param accountsById - Shared work queue of managed accounts
+     * @param accountsByIdentityId - Secondary index: identityId → Set of account IDs
      */
-    public addManagedAccountLayer(accountsById: Map<string, Account>): void {
-        for (const [id, account] of accountsById) {
-            if (this._identityId !== undefined && account.identityId === this._identityId) {
-                this.setCorrelatedAccount(id)
-                this.setManagedAccount(account)
-                accountsById.delete(id)
-            } else if (this._previousAccountIds.has(id) || this._missingAccountIds.has(id)) {
-                this.setUncorrelatedAccount(id)
-                this.setManagedAccount(account)
-                accountsById.delete(id)
+    public addManagedAccountLayer(
+        accountsById: Map<string, Account>,
+        accountsByIdentityId: Map<string, Set<string>>
+    ): void {
+        // Phase 1: Identity-based matching via index (O(1) lookup)
+        if (this._identityId !== undefined) {
+            const matchedIds = accountsByIdentityId.get(this._identityId)
+            if (matchedIds) {
+                for (const id of matchedIds) {
+                    const account = accountsById.get(id)
+                    if (account) {
+                        this.setCorrelatedAccount(id)
+                        this.setManagedAccount(account)
+                        accountsById.delete(id)
+                    }
+                }
+                // Clean up the index entry since all accounts for this identity have been claimed
+                accountsByIdentityId.delete(this._identityId)
+            }
+        }
+
+        // Phase 2: Previous-run matching (scan remaining accounts)
+        if (this._previousAccountIds.size > 0 || this._missingAccountIds.size > 0) {
+            for (const [id, account] of accountsById) {
+                if (this._previousAccountIds.has(id) || this._missingAccountIds.has(id)) {
+                    this.setUncorrelatedAccount(id)
+                    this.setManagedAccount(account)
+                    accountsById.delete(id)
+                    // Also clean up the identity index
+                    if (account.identityId) {
+                        const idSet = accountsByIdentityId.get(account.identityId)
+                        if (idSet) {
+                            idSet.delete(id)
+                            if (idSet.size === 0) accountsByIdentityId.delete(account.identityId)
+                        }
+                    }
+                }
             }
         }
 

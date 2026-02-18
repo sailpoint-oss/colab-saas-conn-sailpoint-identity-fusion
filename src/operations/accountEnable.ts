@@ -48,10 +48,10 @@ export const accountEnable = async (
         timer.phase('Step 1: Loading sources and schema')
 
         await sources.fetchFusionAccounts()
-        const fusionAccounts = await fusion.preProcessFusionAccounts()
-        for (const fusionAccount of fusionAccounts) {
-            await attributes.registerUniqueAttributes(fusionAccount)
-        }
+        // Bulk-register unique values directly from raw accounts (lightweight, no FusionAccount hydration)
+        attributes.registerUniqueValuesFromRawAccounts(sources.fusionAccounts)
+        // Still need preProcessFusionAccounts to populate fusionIdentityMap
+        await fusion.preProcessFusionAccounts()
         timer.phase('Step 2: Pre-processing all fusion accounts to collect unique values')
 
         const attributeOperations: AttributeOperations = {

@@ -323,7 +323,7 @@ export class FusionService {
 
         // Pass direct reference to work queue - deletions will remove processed accounts
         // No snapshot or copy needed: JavaScript's event loop ensures atomic operations
-        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
+        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById, this.sources.managedAccountsByIdentityId)
         this.log.debug(
             `Applied managed account layer for ${fusionAccount.name}: ` +
             `${fusionAccount.accountIds.length} account(s), ${fusionAccount.missingAccountIds.length} missing`
@@ -423,7 +423,7 @@ export class FusionService {
 
             assert(this.sources.managedAccountsById, 'Managed accounts have not been loaded')
             // Pass direct reference to work queue - deletions will remove processed accounts
-            fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
+            fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById, this.sources.managedAccountsByIdentityId)
 
             this.attributes.mapAttributes(fusionAccount)
             await this.attributes.refreshNormalAttributes(fusionAccount)
@@ -473,7 +473,7 @@ export class FusionService {
         fusionAccount.setNeedsReset(true)
         fusionAccount.addFusionDecisionLayer(fusionDecision)
         // Use direct reference - deletions will remove processed accounts from the working queue
-        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
+        fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById, this.sources.managedAccountsByIdentityId)
         this.attributes.mapAttributes(fusionAccount)
         await this.attributes.refreshNormalAttributes(fusionAccount)
 
