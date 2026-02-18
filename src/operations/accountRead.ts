@@ -34,7 +34,7 @@ export const accountRead = async (
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
-        timer.phase('Step 1: Loading sources and schema', 'debug')
+        timer.phase('Step 1: Loading sources and schema')
 
         const attributeOperations: AttributeOperations = {
             refreshMapping: true,
@@ -44,11 +44,11 @@ export const accountRead = async (
         const fusionAccount = await rebuildFusionAccount(input.identity, attributeOperations, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
         log.debug(`Found fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
-        timer.phase('Step 2: Rebuilding fusion account with fresh attributes', 'debug')
+        timer.phase('Step 2: Rebuilding fusion account with fresh attributes')
 
         const iscAccount = await fusion.getISCAccount(fusionAccount)
         assert(iscAccount, 'Failed to generate ISC account from fusion account')
-        timer.phase('Step 3: Generating ISC account', 'debug')
+        timer.phase('Step 3: Generating ISC account')
 
         res.send(iscAccount)
         timer.end(`✓ Account read completed for ${input.identity}`)

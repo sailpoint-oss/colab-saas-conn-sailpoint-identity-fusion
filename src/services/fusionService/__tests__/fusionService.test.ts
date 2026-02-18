@@ -149,7 +149,7 @@ describe('FusionService', () => {
 
             // Mock mapAttributes since it's called in processIdentity
             mockAttributes.mapAttributes.mockImplementation((account) => account)
-            mockAttributes.refreshNonUniqueAttributes.mockResolvedValue()
+            mockAttributes.refreshNormalAttributes.mockResolvedValue()
 
             const result = await fusionService.processIdentities()
 

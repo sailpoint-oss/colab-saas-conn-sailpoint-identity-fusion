@@ -1,5 +1,5 @@
 import { AccountSchema, Attributes, SchemaAttribute } from '@sailpoint/connector-sdk'
-import { AttributeMap, FusionConfig, AttributeDefinition } from '../../model/config'
+import { AttributeMap, FusionConfig, NormalAttributeDefinition, UniqueAttributeDefinition } from '../../model/config'
 import { LogService } from '../logService'
 import { SourceService } from '../sourceService'
 import { assert } from '../../utils/assert'
@@ -15,7 +15,8 @@ export class SchemaService {
     private _fusionSchemaAttributeNames: string[] = []
     private _fusionSchemaAttributeMap: Map<string, SchemaAttribute> = new Map()
     private readonly attributeMerge: 'first' | 'list' | 'concatenate'
-    private readonly attributeDefinitions?: AttributeDefinition[] // Local type from config
+    private readonly normalAttributeDefinitions: NormalAttributeDefinition[]
+    private readonly uniqueAttributeDefinitions: UniqueAttributeDefinition[]
 
     /**
      * @param config - Fusion configuration containing attribute merge strategy and definitions
@@ -28,7 +29,8 @@ export class SchemaService {
         private sources: SourceService
     ) {
         this.attributeMerge = config.attributeMerge
-        this.attributeDefinitions = config.attributeDefinitions
+        this.normalAttributeDefinitions = config.normalAttributeDefinitions ?? []
+        this.uniqueAttributeDefinitions = config.uniqueAttributeDefinitions ?? []
         this.attributeMap = new Map(config.attributeMaps?.map((x) => [x.newAttribute, x]) ?? [])
     }
 
@@ -231,21 +233,22 @@ export class SchemaService {
         return attributes
     }
 
-    /** Builds schema attributes for configured attribute definitions (Velocity expressions). */
+    /** Builds schema attributes for configured attribute definitions (normal + unique). */
     private getAttributeDefinitionAttributes(): SchemaAttribute[] {
-        const attributes: SchemaAttribute[] = this.attributeDefinitions!
-            .filter((x) => x.name) // Filter out any definitions without names
-            .map((x) => {
-                return {
-                    name: x.name!,
-                    description: x.expression ? `Created from expression: ${x.expression}` : '',
-                    type: 'string',
-                    multi: false,
-                    entitlement: false,
-                }
-            })
+        const allDefinitions = [
+            ...this.normalAttributeDefinitions,
+            ...this.uniqueAttributeDefinitions,
+        ]
 
-        return attributes
+        return allDefinitions
+            .filter((x) => x.name)
+            .map((x) => ({
+                name: x.name,
+                description: x.expression ? `Created from expression: ${x.expression}` : '',
+                type: 'string',
+                multi: false,
+                entitlement: false,
+            }))
     }
 
     /** Returns the static base fusion schema attributes (status, actions, reviews, etc.). */

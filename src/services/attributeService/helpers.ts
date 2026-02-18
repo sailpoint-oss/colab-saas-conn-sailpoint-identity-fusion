@@ -1,15 +1,9 @@
-import { AttributeDefinition } from '../../model/config'
 import { Attributes } from '@sailpoint/connector-sdk'
 import { AttributeMappingConfig } from './types'
-import { UNIQUE_ATTRIBUTE_TYPES } from './constants'
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-export const isUniqueAttribute = (definition: AttributeDefinition): boolean => {
-    return definition.type !== undefined && UNIQUE_ATTRIBUTE_TYPES.includes(definition.type as any)
-}
 
 // Pre-compiled regex for better performance
 const BRACKET_REGEX = /\[([^ ].+?)\]/g

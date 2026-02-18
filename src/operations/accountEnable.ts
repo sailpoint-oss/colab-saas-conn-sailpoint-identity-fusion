@@ -7,6 +7,13 @@ import { AttributeOperations } from '../services/attributeService/types'
 /**
  * Account enable operation - Re-enables a previously disabled fusion account.
  *
+ * Enabling triggers a full unique attribute reset (`resetDefinition: true`).
+ * All unique attribute values (e.g. usernames, generated IDs) are unregistered
+ * and regenerated to guarantee collision-free values. Use regular unique attribute
+ * schemas to define changeable attributes that should be refreshed on
+ * enable/disable cycles. The nativeIdentity and account name are never changed
+ * (see {@link processNormalDefinition} and {@link processUniqueDefinition}).
+ *
  * Unlike disable, enable requires pre-processing all fusion accounts to collect
  * unique attribute values before rebuilding, since re-enabling may require
  * reassigning unique identifiers that were released during disable.
@@ -38,14 +45,14 @@ export const accountEnable = async (
         await attributes.initializeCounters()
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
-        timer.phase('Step 1: Loading sources and schema', 'debug')
+        timer.phase('Step 1: Loading sources and schema')
 
         await sources.fetchFusionAccounts()
         const fusionAccounts = await fusion.preProcessFusionAccounts()
         for (const fusionAccount of fusionAccounts) {
             await attributes.registerUniqueAttributes(fusionAccount)
         }
-        timer.phase('Step 2: Pre-processing all fusion accounts to collect unique values', 'debug')
+        timer.phase('Step 2: Pre-processing all fusion accounts to collect unique values')
 
         const attributeOperations: AttributeOperations = {
             refreshMapping: true,
@@ -55,14 +62,16 @@ export const accountEnable = async (
         const fusionAccount = await rebuildFusionAccount(input.identity, attributeOperations, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
         log.debug(`Found fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
-        timer.phase('Step 3: Rebuilding target fusion account with fresh attributes', 'debug')
+
+        await attributes.refreshUniqueAttributes(fusionAccount)
+        timer.phase('Step 3: Rebuilding target fusion account with fresh attributes')
 
         fusionAccount.enable()
-        timer.phase('Step 4: Enabling fusion account', 'debug')
+        timer.phase('Step 4: Enabling fusion account')
 
         const iscAccount = await fusion.getISCAccount(fusionAccount)
         assert(iscAccount, 'Failed to generate ISC account from fusion account')
-        timer.phase('Step 5: Generating ISC account', 'debug')
+        timer.phase('Step 5: Generating ISC account')
 
         res.send(iscAccount)
         timer.end(`✓ Account enable completed for ${input.identity}`)

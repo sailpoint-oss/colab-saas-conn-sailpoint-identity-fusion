@@ -43,11 +43,10 @@
         "counterStart": 1,
         "case": "same",
         "expression": "#set($initial = $firstname.substring(0, 1))$initial$lastname",
-        "unique": false,
+        "useIncrementalCounter": false,
         "refresh": false,
         "trim": false,
         "force": false,
-        "type": "normal",
         "algorithm": "name-matcher",
         "enableBatching": true
     },
@@ -343,20 +342,12 @@
             "items": [
                 {
                     "type": "section",
-                    "sectionTitle": "Attribute Definition Settings",
-                    "sectionHelpMessage": "<strong>Generate attributes using Velocity templates, unique IDs, UUIDs, or counters.</strong><br><br><strong>Attribute Definitions:</strong><br><ul><li><strong>Expression:</strong> Velocity template with access to mapped attributes, <code>$Math</code>, <code>$Datefns</code>, <code>$AddressParse</code>, and <code>$Normalize</code>.</li><li><strong>Type:</strong> Normal, Unique (deduplicated), UUID (immutable), or Counter.</li><li><strong>Options:</strong> Case transform, normalization, space removal, max length.</li></ul><br><strong>Unique generation:</strong> Connector appends counter on collision. Use <strong>Max attempts</strong> to prevent infinite loops.",
+                    "sectionTitle": "Normal Attribute Definitions",
+                    "sectionHelpMessage": "<strong>Generate computed attributes using Velocity templates.</strong><br><br>Normal attributes are recalculated on each aggregation when <em>Refresh</em> is enabled.<br><br><strong>Expression context:</strong> Mapped account attributes, <code>$Math</code>, <code>$Datefns</code>, <code>$AddressParse</code>, <code>$Normalize</code>.<br><strong>Options:</strong> Case transform, normalization, space removal, max length.",
                     "items": [
                         {
-                            "key": "maxAttempts",
-                            "label": "Maximum attempts for unique attribute generation",
-                            "type": "number",
-                            "required": false,
-                            "min": "1",
-                            "helpKey": "Maximum attempts to generate unique value before giving up. Default: 100; prevents infinite loops with unique/UUID types"
-                        },
-                        {
-                            "key": "attributeDefinitions",
-                            "label": "Attribute Definitions",
+                            "key": "normalAttributeDefinitions",
+                            "label": "Normal Attribute Definitions",
                             "titleKey": "expression",
                             "subtitleKey": "name",
                             "dragNDropEnabled": true,
@@ -364,12 +355,12 @@
                             "editButton": true,
                             "addButton": true,
                             "copyButton": true,
-                            "buttonLabel": "New Account Attribute Definition",
+                            "buttonLabel": "New Normal Attribute Definition",
                             "type": "cardList",
-                            "helpKey": "Add definitions to build your attributes",
+                            "helpKey": "Add definitions to build computed attributes",
                             "subMenus": [
                                 {
-                                    "label": "Attribute Configuration",
+                                    "label": "Attribute Definition",
                                     "items": [
                                         {
                                             "key": "name",
@@ -382,15 +373,26 @@
                                             "key": "expression",
                                             "label": "Apache Velocity expression",
                                             "type": "textarea",
-                                            "required": false,
+                                            "required": true,
                                             "helpKey": "Template to generate value. Context: mapped attributes, $Math, $Datefns, $AddressParse, $Normalize. Example: #set($i=$firstname.substring(0, 1))$i$lastname"
                                         },
+                                        {
+                                            "key": "refresh",
+                                            "label": "Refresh on each aggregation?",
+                                            "type": "toggle",
+                                            "helpKey": "Recalculate value on every aggregation"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "label": "Transformations",
+                                    "items": [
                                         {
                                             "key": "case",
                                             "label": "Case selection",
                                             "type": "select",
                                             "required": true,
-                                            "helpKey": "Case transformation to apply. Options: Do not change, Lower case, Upper case, Capitalize",
+                                            "helpKey": "Case transformation to apply",
                                             "options": [
                                                 {
                                                     "label": "Do not change",
@@ -411,76 +413,16 @@
                                             ]
                                         },
                                         {
-                                            "key": "type",
-                                            "label": "Attribute Type",
-                                            "type": "select",
-                                            "required": true,
-                                            "helpKey": "Type of attribute: Normal (standard), Unique (must be unique across accounts), UUID (immutable), or Counter-based (increments)",
-                                            "options": [
-                                                {
-                                                    "label": "Normal",
-                                                    "value": "normal"
-                                                },
-                                                {
-                                                    "label": "Unique",
-                                                    "value": "unique"
-                                                },
-                                                {
-                                                    "label": "UUID",
-                                                    "value": "uuid"
-                                                },
-                                                {
-                                                    "label": "Counter-based",
-                                                    "value": "counter"
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            "key": "counterStart",
-                                            "label": "Counter start value",
-                                            "type": "number",
-                                            "required": true,
-                                            "parentKey": "type",
-                                            "parentValue": "counter",
-                                            "helpKey": "Starting value for the counter. Example: 1, 1000"
-                                        },
-                                        {
-                                            "key": "digits",
-                                            "label": "Minimum counter digits ($counter)",
-                                            "type": "number",
-                                            "required": true,
-                                            "parentKey": "type",
-                                            "parentValue": "counter",
-                                            "helpKey": "Minimum digits for counter (zero-padded). Example: 3 -> 001"
-                                        },
-                                        {
-                                            "key": "digits",
-                                            "label": "Minimum counter digits ($counter)",
-                                            "type": "number",
-                                            "required": true,
-                                            "parentKey": "type",
-                                            "parentValue": "unique",
-                                            "helpKey": "Minimum digits for counter appended on collision (zero-padded)"
-                                        },
-                                        {
-                                            "key": "maxLength",
-                                            "label": "Maximum length",
-                                            "type": "number",
-                                            "required": false,
-                                            "min": "1",
-                                            "helpKey": "Maximum length for generated value. Truncates to this length; counter preserved at end for unique/counter types"
-                                        },
-                                        {
                                             "key": "normalize",
                                             "label": "Normalize special characters?",
                                             "type": "toggle",
-                                            "helpKey": "Remove special characters and quotes. Useful for IDs and usernames"
+                                            "helpKey": "Remove special characters and quotes"
                                         },
                                         {
                                             "key": "spaces",
                                             "label": "Remove spaces?",
                                             "type": "toggle",
-                                            "helpKey": "Remove all spaces from value. Useful for IDs and usernames"
+                                            "helpKey": "Remove all spaces from value"
                                         },
                                         {
                                             "key": "trim",
@@ -489,12 +431,140 @@
                                             "helpKey": "Remove leading and trailing whitespace from value"
                                         },
                                         {
-                                            "key": "refresh",
-                                            "label": "Refresh on each aggregation?",
+                                            "key": "maxLength",
+                                            "label": "Maximum length",
+                                            "type": "number",
+                                            "required": false,
+                                            "min": "1",
+                                            "helpKey": "Maximum length for generated value; truncates to this length"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "sectionTitle": "Unique Attribute Definitions",
+                    "sectionHelpMessage": "<strong>Generate unique attributes using Velocity templates with uniqueness enforcement.</strong><br><br>Unique attribute values are preserved once generated and only recalculated on account reset/enable.<br><br><strong>Expression context:</strong> Mapped account attributes, <code>$UUID</code> (auto-generated v4 UUID), <code>$counter</code> (incremental or collision-based), <code>$Math</code>, <code>$Datefns</code>, <code>$AddressParse</code>, <code>$Normalize</code>.<br><br><strong>Collision handling:</strong> On duplicate, the connector appends a disambiguation counter (<code>$counter</code>). Enable <em>Use incremental counter</em> for sequential numbering instead.<br><strong>UUID:</strong> Use <code>$UUID</code> in the expression for an auto-generated immutable UUID.<br><strong>Max attempts:</strong> Limits retries to prevent infinite loops.",
+                    "items": [
+                        {
+                            "key": "maxAttempts",
+                            "label": "Maximum attempts for unique attribute generation",
+                            "type": "number",
+                            "required": false,
+                            "min": "1",
+                            "helpKey": "Maximum attempts to generate a unique value before giving up. Default: 100; prevents infinite loops"
+                        },
+                        {
+                            "key": "uniqueAttributeDefinitions",
+                            "label": "Unique Attribute Definitions",
+                            "titleKey": "expression",
+                            "subtitleKey": "name",
+                            "dragNDropEnabled": true,
+                            "deleteButton": true,
+                            "editButton": true,
+                            "addButton": true,
+                            "copyButton": true,
+                            "buttonLabel": "New Unique Attribute Definition",
+                            "type": "cardList",
+                            "helpKey": "Add definitions to build unique attributes",
+                            "subMenus": [
+                                {
+                                    "label": "Attribute Definition",
+                                    "items": [
+                                        {
+                                            "key": "name",
+                                            "label": "Attribute Name",
+                                            "type": "text",
+                                            "required": true,
+                                            "helpKey": "Name of the unique account attribute to generate. Will appear in the discovered schema"
+                                        },
+                                        {
+                                            "key": "expression",
+                                            "label": "Apache Velocity expression",
+                                            "type": "textarea",
+                                            "required": true,
+                                            "helpKey": "Template to generate value. Use $UUID for auto-generated UUID, $counter for counter values. Context: mapped attributes, $Math, $Datefns, $AddressParse, $Normalize. Example: #set($i=$firstname.substring(0, 1))$i$lastname$counter"
+                                        },
+                                        {
+                                            "key": "digits",
+                                            "label": "Minimum counter digits ($counter)",
+                                            "type": "number",
+                                            "required": true,
+                                            "helpKey": "Minimum digits for counter (zero-padded). Example: 3 → 001, 002"
+                                        },
+                                        {
+                                            "key": "useIncrementalCounter",
+                                            "label": "Use incremental counter?",
                                             "type": "toggle",
-                                            "parentKey": "type",
-                                            "parentValue": "normal",
-                                            "helpKey": "Recalculate value every aggregation? Only for Normal type; unique/UUID/counter preserve state"
+                                            "helpKey": "Use a persistent counter ($counter) that always increments instead of only incrementing on collision. Useful for sequential numbering (e.g. employee IDs)"
+                                        },
+                                        {
+                                            "key": "counterStart",
+                                            "label": "Counter start value",
+                                            "type": "number",
+                                            "parentKey": "useIncrementalCounter",
+                                            "parentValue": "true",
+                                            "required": true,
+                                            "helpKey": "Starting value for the incremental counter. Example: 1, 1000"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "label": "Transformations",
+                                    "items": [
+                                        {
+                                            "key": "case",
+                                            "label": "Case selection",
+                                            "type": "select",
+                                            "required": true,
+                                            "helpKey": "Case transformation to apply",
+                                            "options": [
+                                                {
+                                                    "label": "Do not change",
+                                                    "value": "same"
+                                                },
+                                                {
+                                                    "label": "Lower case",
+                                                    "value": "lower"
+                                                },
+                                                {
+                                                    "label": "Upper case",
+                                                    "value": "upper"
+                                                },
+                                                {
+                                                    "label": "Capitalize",
+                                                    "value": "capitalize"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "key": "normalize",
+                                            "label": "Normalize special characters?",
+                                            "type": "toggle",
+                                            "helpKey": "Remove special characters and quotes"
+                                        },
+                                        {
+                                            "key": "spaces",
+                                            "label": "Remove spaces?",
+                                            "type": "toggle",
+                                            "helpKey": "Remove all spaces from value"
+                                        },
+                                        {
+                                            "key": "trim",
+                                            "label": "Trim leading and trailing spaces?",
+                                            "type": "toggle",
+                                            "helpKey": "Remove leading and trailing whitespace from value"
+                                        },
+                                        {
+                                            "key": "maxLength",
+                                            "label": "Maximum length",
+                                            "type": "number",
+                                            "required": false,
+                                            "min": "1",
+                                            "helpKey": "Maximum length for generated value; truncates to this length"
                                         }
                                     ]
                                 }

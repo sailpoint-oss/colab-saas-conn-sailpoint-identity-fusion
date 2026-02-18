@@ -8,10 +8,15 @@ import { correlateAction } from './actions/correlateAction'
 /**
  * Account create operation - Creates a new fusion account for an identity.
  *
+ * The nativeIdentity and account name are determined at creation time and become
+ * immutable for the lifetime of the account. Subsequent updates, reads, and
+ * enable/disable cycles will never modify them, preventing disconnection between
+ * the Fusion account and the platform and protecting the hosting identity.
+ *
  * Processing Flow:
- * 1. SETUP: Load sources, schema, and initialize attribute counters
- * 2. IDENTITY: Fetch the target identity by name and locate its fusion identity
- * 3. ACTIONS: Execute requested actions (report, fusion, correlate) against the fusion identity
+ * 1. SETUP: Load sources, schema, fetch target identity
+ * 2. LOAD: Fetch all fusion accounts and register unique attribute values for collision detection
+ * 3. PROCESS: Create/update fusion account, refresh unique attributes, execute actions
  * 4. OUTPUT: Generate and return the ISC account representation
  *
  * @param serviceRegistry - Service registry providing access to all connector services
@@ -42,40 +47,30 @@ export const accountCreate = async (
         log.info(`Creating account for identity: ${identityName}`)
         const timer = log.timer()
 
-        // --------------------------------------------------------------------
-        // Single-Item Fetching Strategy
-        // --------------------------------------------------------------------
-        // 1. Fetch Identity (Source Reference)
-        // 2. Fetch Fusion Account (if exists) via Identity ID
-        // 3. Process Identity (merge/create)
-        // --------------------------------------------------------------------
-
         // 1. Fetch Identity first to get the authoritative ID
         const identity = await identities.fetchIdentityByName(identityName)
         assert(identity, `Identity not found: ${identityName}`)
         assert(identity.id, `Identity ID is missing for: ${identityName}`)
-        timer.phase('Step 1: Fetching identity information', 'debug')
+        timer.phase('Step 1: Fetching identity information')
 
-        // 2. Fetch purely the fusion account for this identity (optional existence)
-        await sources.fetchFusionAccount(identity.id, false)
+        // 2. Fetch all fusion accounts and register unique attribute values
+        await sources.fetchFusionAccounts()
         await attributes.initializeCounters()
+        const fusionAccounts = await fusion.preProcessFusionAccounts()
+        for (const fa of fusionAccounts) {
+            await attributes.registerUniqueAttributes(fa)
+        }
+        timer.phase('Step 2: Loading fusion accounts and registering unique values')
 
-        // Populate internal maps with the single loaded account (if any)
-        await fusion.preProcessFusionAccounts()
-        timer.phase('Step 2: Loading fusion account', 'debug')
-
-        // 3. Process the identity to creating/updating the fusion account
+        // 3. Process the identity and refresh unique attributes
         await fusion.processIdentity(identity)
 
         const fusionIdentity = fusion.getFusionIdentity(identity.id)
         assert(fusionIdentity, `Fusion identity not found for identity ID: ${identity.id}`)
         log.debug(`Found fusion identity: ${fusionIdentity.nativeIdentity}`)
 
-        // Optimization: Only load unique attributes for this specific account
-        // instead of bulk loading everything, since we are in single-account mode.
-        await attributes.loadUniqueAttributeValues(fusionIdentity)
         await attributes.refreshUniqueAttributes(fusionIdentity)
-        timer.phase('Step 3: Processing identity', 'debug')
+        timer.phase('Step 3: Processing identity')
 
         const actions = [...(input.attributes.actions ?? [])]
         log.info(`Processing ${actions.length} action(s)`)
@@ -99,11 +94,11 @@ export const accountCreate = async (
                     log.crash(`Unsupported action: ${action}`)
             }
         }
-        timer.phase(`Step 3: Processing ${actions.length} action(s)`, 'debug')
+        timer.phase(`Step 3: Processing ${actions.length} action(s)`)
 
         const iscAccount = await fusion.getISCAccount(fusionIdentity)
         assert(iscAccount, 'Failed to generate ISC account from fusion identity')
-        timer.phase('Step 4: Generating ISC account', 'debug')
+        timer.phase('Step 4: Generating ISC account')
 
         res.send(iscAccount)
         timer.end(`✓ Account creation completed for ${identityName}`)

@@ -165,8 +165,9 @@ export class FusionService {
         this.log.debug(`Pre-processing ${fusionAccounts.length} fusion account(s)`)
         const results: FusionAccount[] = []
         await forEachBatched(fusionAccounts, async (x: Account) => {
-            const fusionAccount = await FusionAccount.fromFusionAccount(x)
+            const fusionAccount = FusionAccount.fromFusionAccount(x)
             this.setFusionAccount(fusionAccount)
+            results.push(fusionAccount)
         })
         return results
     }
@@ -268,6 +269,13 @@ export class FusionService {
      * 3. Identity layer: Add identity document data
      * 4. Decision layer: Add any manual fusion decisions from forms
      * 5. Managed account layer: Find and attach managed accounts from work queue
+     * 6. Attribute mapping and normal attribute definitions
+     * 
+     * Attribute mapping and normal definitions are applied here, **before** the global
+     * unique attribute refresh that runs after all accounts have been processed.  This
+     * two-phase design means normal attributes are available for Fusion matching/scoring
+     * while unique attributes are evaluated afterwards with full knowledge of every
+     * account's normal attribute values.
      * 
      * Work Queue Integration:
      * addManagedAccountLayer receives the direct reference to this.sources.managedAccountsById,
@@ -275,6 +283,7 @@ export class FusionService {
      * from the queue to prevent duplicate processing in later phases.
      * 
      * @param account - The fusion account from the platform
+     * @param attributeOperations - Flags controlling which attribute operations to perform
      * @returns Processed FusionAccount with all layers applied
      */
     public async processFusionAccount(account: Account, attributeOperations: AttributeOperations = { refreshMapping: false, refreshDefinition: false, resetDefinition: false }): Promise<FusionAccount> {
@@ -320,7 +329,7 @@ export class FusionService {
             `${fusionAccount.accountIds.length} account(s), ${fusionAccount.missingAccountIds.length} missing`
         )
 
-        if (this.commandType === StandardCommand.StdAccountList && !resetDefinition) {
+        if (!resetDefinition) {
             await this.attributes.registerUniqueAttributes(fusionAccount)
         }
 
@@ -328,9 +337,7 @@ export class FusionService {
         fusionAccount.setNeedsReset(resetDefinition)
 
         this.attributes.mapAttributes(fusionAccount)
-        await this.attributes.refreshAllAttributes(fusionAccount)
-        // await this.attributes.refreshNonUniqueAttributes(fusionAccount)
-        // await this.attributes.refreshUniqueAttributes(fusionAccount)
+        await this.attributes.refreshNormalAttributes(fusionAccount)
 
         // Correlate missing accounts if correlateOnAggregation is enabled and there are missing accounts
         // Status/action will be updated after correlation promises resolve in getISCAccount
@@ -419,7 +426,7 @@ export class FusionService {
             fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
 
             this.attributes.mapAttributes(fusionAccount)
-            await this.attributes.refreshNonUniqueAttributes(fusionAccount)
+            await this.attributes.refreshNormalAttributes(fusionAccount)
 
             // Set display attribute using the attributes getter
             fusionAccount.attributes[fusionDisplayAttribute] = identity.name
@@ -468,7 +475,7 @@ export class FusionService {
         // Use direct reference - deletions will remove processed accounts from the working queue
         fusionAccount.addManagedAccountLayer(this.sources.managedAccountsById)
         this.attributes.mapAttributes(fusionAccount)
-        await this.attributes.refreshNonUniqueAttributes(fusionAccount)
+        await this.attributes.refreshNormalAttributes(fusionAccount)
 
         if (fusionDecision.newIdentity) {
             // Key generation deferred until getISCAccount
@@ -561,7 +568,7 @@ export class FusionService {
         } else {
             // Non-match
             this.log.debug(`Account ${account.name} is not a duplicate, adding to fusion accounts`)
-            await this.attributes.refreshUniqueAttributes(fusionAccount)
+            // await this.attributes.refreshUniqueAttributes(fusionAccount)
             fusionAccount.setUnmatched()
 
             // Use setter method to add to appropriate map
@@ -768,11 +775,19 @@ export class FusionService {
      * Resolves all pending operations (correlations, reviews) before building the output,
      * then syncs collection attributes and applies the schema subset filter.
      *
-     * Key generation for interim accounts (from processIdentity or processFusionIdentityDecision)
-     * is performed here when the key has not yet been assigned.
+     * Key / nativeIdentity handling:
+     * - For existing accounts that already have a key (set during creation), the key is
+     *   reused as-is. The nativeIdentity is never changed after creation to prevent
+     *   disconnection between the existing Fusion account and the platform.
+     * - For interim accounts (from processIdentity or processFusionIdentityDecision),
+     *   the key is generated here via {@link AttributeService.getSimpleKey}.
+     * - When `skipAccountsWithMissingId` is enabled and the identity attribute is empty,
+     *   getSimpleKey returns undefined and the account is omitted from the output. This
+     *   enables a deliberate pattern: generate an empty identity attribute to prevent
+     *   specific managed accounts or identities from producing Fusion accounts.
      *
      * @param fusionAccount - The fusion account to convert
-     * @returns The formatted account output for the platform, or undefined if key cannot be generated (e.g. skipAccountsWithMissingId)
+     * @returns The formatted account output for the platform, or undefined if key cannot be generated
      */
     public async getISCAccount(fusionAccount: FusionAccount): Promise<StdAccountListOutput | undefined> {
         await fusionAccount.resolvePendingOperations()
@@ -877,7 +892,7 @@ export class FusionService {
         )
 
         this.attributes.mapAttributes(fusionAccount)
-        await this.attributes.refreshNonUniqueAttributes(fusionAccount)
+        await this.attributes.refreshNormalAttributes(fusionAccount)
 
         return fusionAccount
     }

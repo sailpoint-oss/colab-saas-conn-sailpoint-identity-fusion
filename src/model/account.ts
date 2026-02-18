@@ -406,6 +406,11 @@ export class FusionAccount {
         return this._type === 'managed'
     }
 
+    /** Whether this fusion account is associated to an ISC identity. */
+    public get isIdentity(): boolean {
+        return this._identityId !== undefined
+    }
+
     /** Whether this fusion account is disabled. */
     public get disabled(): boolean {
         return this._disabled

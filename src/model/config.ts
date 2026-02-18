@@ -40,34 +40,55 @@ export interface AttributeMap {
 }
 
 /**
- * Configuration for a generated attribute whose value is computed via a Velocity template expression.
- * Supports multiple generation types: normal (template), unique (disambiguated), uuid, and counter.
+ * Configuration for a normal (non-unique) generated attribute.
+ * Value is computed via a Velocity template expression on every aggregation when refresh is enabled.
  */
-export interface AttributeDefinition {
+export interface NormalAttributeDefinition {
     /** The target attribute name */
     name: string
     /** Apache Velocity template expression for value generation */
-    expression?: string
+    expression: string
     /** Case transformation to apply after generation */
     case?: 'same' | 'lower' | 'upper' | 'capitalize'
-    /** Generation strategy: normal template, unique with disambiguation, UUID, or auto-increment counter */
-    type?: 'normal' | 'unique' | 'uuid' | 'counter'
-    /** Starting value for counter-type attributes */
-    counterStart?: number
-    /** Number of digits for counter-type attributes (zero-padded) */
-    digits?: number
     /** Maximum character length for generated values */
     maxLength?: number
     /** Whether to normalize (transliterate) the generated value */
     normalize: boolean
-    /** Whether to allow spaces in the generated value */
+    /** Whether to remove spaces from the generated value */
     spaces: boolean
     /** Whether to trim whitespace from the generated value */
     trim: boolean
     /** Whether to regenerate this attribute on every aggregation */
     refresh: boolean
-    /** Set of already-used values for unique-type attributes (populated at runtime) */
-    values?: Set<string>
+}
+
+/**
+ * Configuration for a unique generated attribute.
+ * Value must be unique across all accounts. Supports `$UUID` in the expression
+ * (auto-generates a v4 UUID injected into the Velocity context) and an optional
+ * incremental counter for sequential numbering or collision disambiguation.
+ */
+export interface UniqueAttributeDefinition {
+    /** The target attribute name */
+    name: string
+    /** Apache Velocity template expression. Use $UUID for auto-generated UUIDs, $counter for counter values. */
+    expression: string
+    /** Case transformation to apply after generation */
+    case?: 'same' | 'lower' | 'upper' | 'capitalize'
+    /** Use a persistent incremental counter ($counter) that always increments instead of collision-based disambiguation */
+    useIncrementalCounter?: boolean
+    /** Starting value for the incremental counter */
+    counterStart?: number
+    /** Minimum digits for the counter value (zero-padded) */
+    digits?: number
+    /** Maximum character length for generated values */
+    maxLength?: number
+    /** Whether to normalize (transliterate) the generated value */
+    normalize: boolean
+    /** Whether to remove spaces from the generated value */
+    spaces: boolean
+    /** Whether to trim whitespace from the generated value */
+    trim: boolean
 }
 
 /**
@@ -153,20 +174,31 @@ export interface AttributeMappingDefinitionsSection {
 export type AttributeMappingSettingsMenu = AttributeMappingDefinitionsSection
 
 // ============================================================================
-// Attribute Definition Settings Menu
+// Normal Attribute Definition Settings Menu
 // ============================================================================
 
-/** Configuration for generated attribute definitions (Velocity templates). */
-export interface AttributeDefinitionSettingsSection {
-    attributeDefinitions: AttributeDefinition[]
+/** Configuration for normal (non-unique) attribute definitions (Velocity templates). */
+export interface NormalAttributeDefinitionSettingsSection {
+    normalAttributeDefinitions: NormalAttributeDefinition[]
+}
+
+export type NormalAttributeDefinitionSettingsMenu = NormalAttributeDefinitionSettingsSection
+
+// ============================================================================
+// Unique Attribute Definition Settings Menu
+// ============================================================================
+
+/** Configuration for unique attribute definitions (unique IDs, UUIDs, counters). */
+export interface UniqueAttributeDefinitionSettingsSection {
+    uniqueAttributeDefinitions: UniqueAttributeDefinition[]
     /**
      * Maximum number of attempts to generate a unique attribute value before giving up.
-     * Prevents infinite loops when generating unique or UUID attributes.
+     * Prevents infinite loops when generating unique attributes.
      */
     maxAttempts?: number
 }
 
-export type AttributeDefinitionSettingsMenu = AttributeDefinitionSettingsSection
+export type UniqueAttributeDefinitionSettingsMenu = UniqueAttributeDefinitionSettingsSection
 
 // ============================================================================
 // Fusion Settings Menu
@@ -359,7 +391,8 @@ export interface FusionConfig
     ConnectionSettingsMenu,
     SourceSettingsMenu,
     AttributeMappingSettingsMenu,
-    AttributeDefinitionSettingsMenu,
+    NormalAttributeDefinitionSettingsMenu,
+    UniqueAttributeDefinitionSettingsMenu,
     FusionSettingsMenu,
     AdvancedSettingsMenu,
     InternalConfig { }

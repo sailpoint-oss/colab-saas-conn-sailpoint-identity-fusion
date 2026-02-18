@@ -7,6 +7,11 @@ import { AttributeOperations } from '../services/attributeService/types'
 /**
  * Account disable operation - Disables a fusion account.
  *
+ * Disabling does **not** reset unique attribute definitions (`resetDefinition: false`).
+ * Existing unique values are preserved during disable. A subsequent enable operation
+ * will set `resetDefinition: true`, triggering a full unique attribute regeneration
+ * to ensure collision-free values after re-enabling.
+ *
  * Processing Flow:
  * 1. SETUP: Load sources and schema
  * 2. REBUILD: Reconstruct the fusion account with refreshed mapped and generated attributes
@@ -32,7 +37,7 @@ export const accountDisable = async (
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
-        timer.phase('Step 1: Loading sources and schema', 'debug')
+        timer.phase('Step 1: Loading sources and schema')
 
         const attributeOperations: AttributeOperations = {
             refreshMapping: true,
@@ -42,14 +47,14 @@ export const accountDisable = async (
         const fusionAccount = await rebuildFusionAccount(input.identity, attributeOperations, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
         log.debug(`Found fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
-        timer.phase('Step 2: Rebuilding fusion account with fresh attributes', 'debug')
+        timer.phase('Step 2: Rebuilding fusion account with fresh attributes')
 
         fusionAccount.disable()
-        timer.phase('Step 3: Disabling fusion account', 'debug')
+        timer.phase('Step 3: Disabling fusion account')
 
         const iscAccount = await fusion.getISCAccount(fusionAccount)
         assert(iscAccount, 'Failed to generate ISC account from fusion account')
-        timer.phase('Step 4: Generating ISC account', 'debug')
+        timer.phase('Step 4: Generating ISC account')
 
         res.send(iscAccount)
         timer.end(`✓ Account disable completed for ${input.identity}`)

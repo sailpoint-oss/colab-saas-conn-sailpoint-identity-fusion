@@ -1,5 +1,4 @@
 import {
-    isUniqueAttribute,
     attrSplit,
     attrConcat,
     processAttributeMapping,
@@ -8,28 +7,6 @@ import {
 import { Attributes } from '@sailpoint/connector-sdk'
 
 describe('attributeService helpers', () => {
-    describe('isUniqueAttribute', () => {
-        it('should return true for unique type', () => {
-            expect(isUniqueAttribute({ type: 'unique', name: 'x', normalize: true, spaces: false, trim: true, refresh: false })).toBe(true)
-        })
-
-        it('should return true for uuid type', () => {
-            expect(isUniqueAttribute({ type: 'uuid', name: 'x', normalize: true, spaces: false, trim: true, refresh: false })).toBe(true)
-        })
-
-        it('should return true for counter type', () => {
-            expect(isUniqueAttribute({ type: 'counter', name: 'x', normalize: true, spaces: false, trim: true, refresh: false })).toBe(true)
-        })
-
-        it('should return false for normal type', () => {
-            expect(isUniqueAttribute({ type: 'normal', name: 'x', normalize: true, spaces: false, trim: true, refresh: false })).toBe(false)
-        })
-
-        it('should return false when type is undefined', () => {
-            expect(isUniqueAttribute({ name: 'x', normalize: true, spaces: false, trim: true, refresh: false })).toBe(false)
-        })
-    })
-
     describe('attrSplit', () => {
         it('should split bracketed values', () => {
             expect(attrSplit('[HR] [IT] [Finance]')).toEqual(['HR', 'IT', 'Finance'])

@@ -91,7 +91,8 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     // Array defaults - ensure arrays are never undefined
     // ============================================================================
     config.attributeMaps = config.attributeMaps ?? []
-    config.attributeDefinitions = config.attributeDefinitions ?? []
+    config.normalAttributeDefinitions = config.normalAttributeDefinitions ?? []
+    config.uniqueAttributeDefinitions = config.uniqueAttributeDefinitions ?? []
     config.sources = config.sources ?? []
     config.fusionFormAttributes = config.fusionFormAttributes ?? []
     config.matchingConfigs = config.matchingConfigs ?? []

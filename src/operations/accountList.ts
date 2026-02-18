@@ -2,7 +2,6 @@ import { ConnectorError, Response, StdAccountListInput, StdAccountListOutput } f
 import { ServiceRegistry } from '../services/serviceRegistry'
 import { softAssert } from '../utils/assert'
 import { generateReport } from './helpers/generateReport'
-import { FusionAccount } from '../model/account'
 
 /**
  * Account list operation - Main entry point for identity fusion processing.
@@ -17,10 +16,25 @@ import { FusionAccount } from '../model/account'
  *    d. processFusionIdentityDecisions - Process "new identity" decisions
  *    e. processManagedAccounts - Process remaining uncorrelated accounts (deduplication)
  *    f. reconcilePendingFormState - Recalculate transient form-derived entitlements (candidate + reviews)
- *    g. refreshUniqueAttributes - Generate unique attributes for new non-managed accounts
+ *    g. refreshUniqueAttributes - Global unique attribute refresh for all fusion accounts
  * 4. REPORT: Generate fusion report (conditional)
  * 5. OUTPUT: Send final fusion account list to platform
  * 6. CLEANUP: Clear caches and save state
+ *
+ * Attribute Evaluation Order:
+ * - Normal attributes are created during steps 3b-3e (per-account processing inside
+ *   processFusionAccount / processIdentity). Attribute mapping runs first, then normal
+ *   attribute definitions. These values feed into Fusion matching/scoring.
+ * - Unique attributes are evaluated in step 3g (global refresh) **after** all Fusion
+ *   matching has completed. Unique definitions can reference normal attribute values
+ *   but not the other way around, because of this evaluation order.
+ * - Attribute definitions can reference previously defined attributes via the shared
+ *   Velocity context, so definition order within each type matters.
+ *
+ * Output / Skip Pattern:
+ * - Accounts whose fusion identity attribute evaluates to empty are omitted from the
+ *   output when "Skip accounts with a missing identifier" is enabled. This allows
+ *   intentionally preventing specific accounts from producing Fusion accounts.
  *
  * Memory Optimizations:
  * - No map copies/snapshots during processing (direct reference only)
@@ -28,7 +42,6 @@ import { FusionAccount } from '../model/account'
  * - Account caches cleared after output is sent
  * - Report arrays cleared after report generation (in generateReport)
  * - Conditional previous attributes (only stored for existing fusion accounts)
- * - newNonManagedFusionAccounts drained by splice during refresh (releases refs per batch)
  *
  * Work Queue (sources.managedAccountsById):
  * - Starts with all managed accounts from all sources
@@ -104,16 +117,15 @@ export const accountList = async (
         log.info(`Step ${phase}.1: Processing existing fusion accounts`)
         await fusion.processFusionAccounts()
 
-        const newNonManagedFusionAccounts: FusionAccount[] = []
         log.info(`Step ${phase}.2: Processing identities`)
-        newNonManagedFusionAccounts.push(...await fusion.processIdentities())
+        await fusion.processIdentities()
 
         // Memory optimization: identities are no longer needed past this point
         identities.clear()
         log.info('Identities cache cleared from memory')
 
         log.info(`Step ${phase}.3: Processing fusion identity decisions (new identity)`)
-        newNonManagedFusionAccounts.push(...await fusion.processFusionIdentityDecisions())
+        await fusion.processFusionIdentityDecisions()
 
         log.info(`Step ${phase}.4: Processing managed accounts (deduplication)`)
         await fusion.processManagedAccounts()
@@ -124,11 +136,11 @@ export const accountList = async (
         // and candidates flagged during form creation need to be preserved for this run.
         fusion.reconcilePendingFormState()
 
-        log.info(`Step ${phase}.6: Refresh non-managed accounts unique attributes`)
-        // Memory: splice drains the array so refs are released per batch; bounded concurrency
+        log.info(`Step ${phase}.6: Refresh unique attributes for all fusion accounts`)
         const refreshBatchSize = config.managedAccountsBatchSize ?? 50
-        while (newNonManagedFusionAccounts.length > 0) {
-            const batch = newNonManagedFusionAccounts.splice(0, refreshBatchSize)
+        const allFusionAccounts = [...fusion.fusionAccounts, ...fusion.fusionIdentities]
+        while (allFusionAccounts.length > 0) {
+            const batch = allFusionAccounts.splice(0, refreshBatchSize)
             await Promise.all(batch.map((account) => attributes.refreshUniqueAttributes(account)))
         }
 

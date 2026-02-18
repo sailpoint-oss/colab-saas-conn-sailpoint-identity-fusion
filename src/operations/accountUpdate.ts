@@ -41,7 +41,7 @@ export const accountUpdate = async (
 
         await sources.fetchAllSources()
         await schemas.setFusionAccountSchema(input.schema)
-        timer.phase('Step 1: Loading sources and schema', 'debug')
+        timer.phase('Step 1: Loading sources and schema')
 
         const attributeOperations: AttributeOperations = {
             refreshMapping: false,
@@ -51,7 +51,7 @@ export const accountUpdate = async (
         const fusionAccount = await rebuildFusionAccount(input.identity, attributeOperations, serviceRegistry)
         assert(fusionAccount, `Fusion account not found for identity: ${input.identity}`)
         log.debug(`Found fusion account: ${fusionAccount.name || fusionAccount.nativeIdentity}`)
-        timer.phase('Step 2: Rebuilding fusion account with fresh attributes', 'debug')
+        timer.phase('Step 2: Rebuilding fusion account with fresh attributes')
 
         log.info(`Processing ${input.changes.length} change(s)`)
         for (const change of input.changes) {
@@ -80,11 +80,11 @@ export const accountUpdate = async (
                 log.crash(`Unsupported entitlement change: ${change.attribute}`)
             }
         }
-        timer.phase(`Step 3: Processing ${input.changes.length} change(s)`, 'debug')
+        timer.phase(`Step 3: Processing ${input.changes.length} change(s)`)
 
         const iscAccount = await fusion.getISCAccount(fusionAccount)
         assert(iscAccount, 'Failed to generate ISC account from fusion account')
-        timer.phase('Step 4: Generating updated ISC account', 'debug')
+        timer.phase('Step 4: Generating updated ISC account')
 
         res.send(iscAccount)
         timer.end(`✓ Account update completed for ${input.identity}`)

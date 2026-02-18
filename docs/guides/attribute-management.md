@@ -632,15 +632,118 @@ Result: "John A. Smith" or "John Smith" (if no middle name)
 
 Understanding the sequence helps design correct configurations:
 
-| Step | Component | Action | Example |
-|------|-----------|--------|---------|
-| 1 | **Account fetch** | Read accounts from configured sources | Workday: `{title: "Engineer"}`, AD: `{jobTitle: "Sr Engineer"}` |
-| 2 | **Attribute Mapping** | Merge per mapping rules | Map `[title, jobTitle]` → `jobTitle`, merge: first found → "Engineer" |
-| 3 | **Attribute Definition** | Generate attributes from mapped data | Generate `username` from `$firstname $lastname` → "jsmith" |
-| 4 | **Schema** | Result is Fusion account schema | `{jobTitle: "Engineer", username: "jsmith", uuid: "a3f2..."}` |
-| 5 | **Discover Schema** | ISC reads schema from connector | Schema includes mapped + generated attributes |
+| Step | Component | Phase | Action | Example |
+|------|-----------|-------|--------|---------|
+| 1 | **Account fetch** | Per-account | Read accounts from configured sources | Workday: `{title: "Engineer"}`, AD: `{jobTitle: "Sr Engineer"}` |
+| 2 | **Attribute Mapping** | Per-account | Merge per mapping rules | Map `[title, jobTitle]` → `jobTitle`, merge: first found → "Engineer" |
+| 3 | **Normal Attribute Definition** | Per-account | Generate non-unique attributes from mapped data | Generate `fullName` from `$firstname $lastname` → "John Smith" |
+| 4 | **Fusion Matching / Scoring** | Per-account | Compare normal attributes against existing identities | Normal attributes feed into deduplication scoring |
+| 5 | **Unique Attribute Definition** | Global (after all matching) | Generate unique attributes with collision detection | Generate `username` from `$firstname.$lastname` → "jsmith" (or "jsmith1" on collision) |
+| 6 | **Schema** | Output | Result is Fusion account schema | `{jobTitle: "Engineer", fullName: "John Smith", username: "jsmith", uuid: "a3f2..."}` |
+| 7 | **Discover Schema** | Setup | ISC reads schema from connector | Schema includes mapped + generated attributes |
 
-**Key insight:** Attribute Definition expressions can reference attributes created by Attribute Mapping. Ensure mapped attributes exist before referencing in expressions.
+**Key insights:**
+
+- Normal attribute definitions run **before** Fusion matching. Their output is available to the matching/scoring engine and to unique definitions.
+- Unique attribute definitions run **after** all Fusion matching has completed (as a global pass over every account). They can reference normal attribute values but not the other way around.
+- Attribute Definition expressions can reference attributes created by Attribute Mapping. Ensure mapped attributes exist before referencing in expressions.
+
+---
+
+## Attribute evaluation order and cross-referencing
+
+### Two-phase evaluation
+
+Attribute definitions are evaluated in two distinct phases during aggregation:
+
+1. **Normal definitions** — evaluated per-account during individual account processing (before Fusion matching). Attribute mapping runs first, then each normal definition in order.
+2. **Unique definitions** — evaluated in a single global pass after all accounts have been processed and scored. This ensures that unique value generation has full knowledge of every account's normal attributes and can guarantee collision-free values across the entire dataset.
+
+### Cross-referencing between definitions
+
+All definitions (normal and unique) share a Velocity context that accumulates values as definitions are processed:
+
+- When a definition generates a value, it is written to both the account's attribute bag and the shared Velocity context.
+- **Later definitions can reference values produced by earlier ones** — the order of definitions in the configuration matters.
+- **Unique definitions can reference normal attribute values**, because normal definitions have already been evaluated by the time unique definitions run.
+- **Normal definitions cannot reference unique attributes**, because unique evaluation happens in a later phase.
+
+```
+Example: definition order matters
+
+Normal definitions (evaluated first, in order):
+  1. firstName = $identity.firstname       → "John"
+  2. lastName  = $identity.lastname        → "Smith"
+  3. fullName  = $firstName $lastName       → "John Smith"  (references #1 and #2)
+
+Unique definitions (evaluated after matching, in order):
+  4. username  = $firstName.$lastName       → "john.smith"  (references normal #1 and #2)
+  5. email     = $username@example.com      → "john.smith@example.com"  (references unique #4)
+```
+
+### Preloading attributes with mapping for unique generation
+
+Attribute mapping can be used in conjunction with unique attribute definitions to **preload** attributes from existing managed accounts, identities, and Fusion accounts into the Velocity context. The unique attribute definition then runs and sets a value that is guaranteed to be different from any other value from a different account or identity.
+
+This is useful when you want to generate a unique username based on data from a managed source (e.g. HR system), while ensuring no two Fusion accounts share the same username:
+
+```
+Step 1: Attribute Mapping
+  Map [firstName, first_name] → firstName  (from HR, AD)
+  Map [lastName, last_name]   → lastName   (from HR, AD)
+
+Step 2: Unique Attribute Definition
+  username = $firstName.$lastName  (unique, lowercase, normalize)
+  → Generates "john.smith", with automatic collision handling → "john.smith1" if needed
+```
+
+---
+
+## nativeIdentity and account name immutability
+
+The `nativeIdentity` (account identifier) and account `name` (display attribute) are **set at creation time and never changed afterwards**, even if an attribute definition would otherwise overwrite them.
+
+| Attribute | Protection | Reason |
+|-----------|-----------|--------|
+| **nativeIdentity** (fusion identity attribute) | Skipped by both normal and unique definitions for identity-linked accounts | Prevents disconnection between the existing Fusion account and the platform during subsequent updates, reads, or enable/disable cycles |
+| **name** (fusion display attribute) | Locked to the hosting identity's display name | Prevents destruction of the identity linkage; the account always reflects the correct identity |
+
+**Implications for configuration:**
+
+- If you define a **unique attribute** that maps to the same schema attribute as the fusion identity attribute, it will only be generated once (at account creation). Subsequent aggregations and enable/disable cycles will not change it for identity-linked accounts.
+- Use a **UUID** unique attribute as native identity when you need a truly immutable, stable reference. Template-based unique IDs (e.g. usernames) can be re-evaluated when an account is enabled after being disabled, but the `nativeIdentity` itself stays frozen.
+- For changeable attributes like usernames, define them as separate unique attributes in the schema. These **will** be regenerated on enable/disable cycles (see below).
+
+### Unique attribute reset on enable/disable
+
+Use regular unique attribute schemas to define attributes you may want to change, like usernames or email aliases. Disabling and then re-enabling a Fusion account triggers a **unique attribute reset**:
+
+- **Disable**: preserves all existing unique attribute values (`resetDefinition: false`).
+- **Enable**: resets and regenerates all unique attribute values (`resetDefinition: true`), ensuring collision-free values after the account has been inactive.
+
+The `nativeIdentity` and account `name` are always preserved through this cycle — only other unique attributes are affected.
+
+---
+
+## Preventing Fusion account creation (empty nativeIdentity skip pattern)
+
+One can purposely generate an **empty** `nativeIdentity` in conjunction with the **"Skip accounts with a missing identifier"** processing option to prevent specific managed accounts or identities from generating Fusion accounts.
+
+**How it works:**
+
+1. Define an attribute definition (normal or unique) that maps to the fusion identity attribute.
+2. Design the expression so it evaluates to an empty string for accounts you want to exclude (e.g. using `#if` conditions in Velocity).
+3. Enable **"Skip accounts with a missing identifier"** in Processing Control settings.
+4. When the fusion identity attribute is empty and the skip option is on, the account is omitted from the output entirely.
+
+```velocity
+## Example: only generate identity for accounts with an email
+#if($email && $email != "")
+  $email
+#end
+```
+
+With "Skip accounts with a missing identifier" enabled, any account without an email will not produce a Fusion account.
 
 ---
 
@@ -682,10 +785,13 @@ Understanding the sequence helps design correct configurations:
 **Best practices:**
 1. Use **Attribute Mapping** first to consolidate source attributes
 2. Use **Attribute Definition** to generate additional attributes on top of mapped data
-3. For usernames: **Unique** type with expression, lowercase, normalize, remove spaces
-4. For stable reference: **UUID** type as native identity
-5. For sequential IDs: **Counter-based** type with start value and padding
-6. Test expressions with small batch before full rollout
+3. Definition order matters — later definitions can reference earlier ones; unique definitions can reference normal attributes but not vice versa
+4. For usernames: **Unique** type with expression, lowercase, normalize, remove spaces
+5. For stable reference: **UUID** type as native identity (immutable after creation)
+6. For changeable unique attributes (e.g. email aliases): define as separate unique attributes — they will regenerate on enable/disable cycles
+7. For sequential IDs: **Counter-based** type with start value and padding
+8. To exclude specific accounts: use an empty nativeIdentity with "Skip accounts with a missing identifier"
+9. Test expressions with small batch before full rollout
 
 **Next steps:**
 - For identity-only attribute generation (no sources), see [Identity Fusion for attribute generation](attribute-generation.md).
