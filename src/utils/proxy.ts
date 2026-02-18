@@ -39,13 +39,12 @@ const isValidObject = (obj: any): boolean => {
 
 // Proxy Client Mode: Forward requests to external connector
 export const isProxyMode = (config: FusionConfig): boolean => {
-    // const proxyEnabled = config.proxyEnabled ?? false
-    // const hasProxyUrl = config.proxyUrl !== undefined && config.proxyUrl !== ''
-    // const isServer = process.env.PROXY_PASSWORD !== undefined
+    const proxyEnabled = config.proxyEnabled ?? false
+    const hasProxyUrl = config.proxyUrl !== undefined && config.proxyUrl !== ''
+    const isServer = process.env.PROXY_PASSWORD !== undefined
 
     // Client mode: has proxyUrl and is NOT the server (unless explicitly flagged as proxy via internal config)
-    // return (proxyEnabled && hasProxyUrl && !isServer) || (config.isProxy === true)
-    return config.isProxy === true
+    return (proxyEnabled && hasProxyUrl && !isServer) || (config.isProxy === true)
 }
 
 // Proxy Server Mode: Receive and process requests from internal connector

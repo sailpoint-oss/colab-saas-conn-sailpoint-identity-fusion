@@ -466,6 +466,15 @@ export class AttributeService {
         this.log.debug(`Registered ${values.length} existing value(s) for attribute '${attributeName}'`)
     }
 
+    /**
+     * Load unique attribute values from a specific account.
+     * Used for single-account operations to ensure uniqueness constraints are met for
+     * the target account without loading all other accounts.
+     */
+    public async loadUniqueAttributeValues(fusionAccount: FusionAccount): Promise<void> {
+        await this.processUniqueAttributes(fusionAccount, 'register')
+    }
+
     private getStateWrapper(): StateWrapper {
         assert(this.stateWrapper, 'State wrapper is not set')
         return this.stateWrapper!

@@ -42,21 +42,40 @@ export const accountCreate = async (
         log.info(`Creating account for identity: ${identityName}`)
         const timer = log.timer()
 
-        await sources.fetchFusionAccounts()
-        await attributes.initializeCounters()
-        await fusion.preProcessFusionAccounts()
-        timer.phase('Step 1: Loading fusion accounts and initializing', 'debug')
+        // --------------------------------------------------------------------
+        // Single-Item Fetching Strategy
+        // --------------------------------------------------------------------
+        // 1. Fetch Identity (Source Reference)
+        // 2. Fetch Fusion Account (if exists) via Identity ID
+        // 3. Process Identity (merge/create)
+        // --------------------------------------------------------------------
 
+        // 1. Fetch Identity first to get the authoritative ID
         const identity = await identities.fetchIdentityByName(identityName)
         assert(identity, `Identity not found: ${identityName}`)
         assert(identity.id, `Identity ID is missing for: ${identityName}`)
+        timer.phase('Step 1: Fetching identity information', 'debug')
 
-        await fusion.processIdentities()
+        // 2. Fetch purely the fusion account for this identity (optional existence)
+        await sources.fetchFusionAccount(identity.id, false)
+        await attributes.initializeCounters()
+
+        // Populate internal maps with the single loaded account (if any)
+        await fusion.preProcessFusionAccounts()
+        timer.phase('Step 2: Loading fusion account', 'debug')
+
+        // 3. Process the identity to creating/updating the fusion account
+        await fusion.processIdentity(identity)
+
         const fusionIdentity = fusion.getFusionIdentity(identity.id)
         assert(fusionIdentity, `Fusion identity not found for identity ID: ${identity.id}`)
         log.debug(`Found fusion identity: ${fusionIdentity.nativeIdentity}`)
+
+        // Optimization: Only load unique attributes for this specific account
+        // instead of bulk loading everything, since we are in single-account mode.
+        await attributes.loadUniqueAttributeValues(fusionIdentity)
         await attributes.refreshUniqueAttributes(fusionIdentity)
-        timer.phase('Step 2: Fetching identity information', 'debug')
+        timer.phase('Step 3: Processing identity', 'debug')
 
         const actions = [...(input.attributes.actions ?? [])]
         log.info(`Processing ${actions.length} action(s)`)

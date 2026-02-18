@@ -380,6 +380,7 @@ export class SourceService {
         yield* this.client.paginateParallel(listAccounts, requestParameters, undefined, ctx, abortSignal)
     }
 
+
     /**
      * Fetch and cache fusion accounts
      */
@@ -472,10 +473,19 @@ export class SourceService {
     /**
      * Fetch and cache a single fusion account by nativeIdentity
      */
-    public async fetchFusionAccount(nativeIdentity: string): Promise<void> {
+    public async fetchFusionAccount(nativeIdentity: string, mustExist = true): Promise<void> {
         this.log.debug('Fetching fusion account')
         const fusionAccount = await this.fetchSourceAccountByNativeIdentity(this.fusionSourceId, nativeIdentity)
-        assert(fusionAccount, `Fusion account not found for native identity "${nativeIdentity}". The account may have been deleted or the identity does not exist.`)
+
+        if (!fusionAccount) {
+            if (mustExist) {
+                throw new ConnectorError(
+                    `Fusion account not found for native identity "${nativeIdentity}". The account may have been deleted or the identity does not exist.`,
+                    ConnectorErrorType.Generic
+                )
+            }
+            return
+        }
 
         if (!this.fusionAccountsByNativeIdentity) {
             this.fusionAccountsByNativeIdentity = new Map()

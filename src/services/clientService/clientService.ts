@@ -215,15 +215,22 @@ export class ClientService {
             if (!this.requestTimeoutMs) {
                 return apiFunction()
             }
-            return Promise.race<TResponse>([
-                apiFunction(),
-                new Promise<TResponse>((_, reject) =>
-                    setTimeout(
-                        () => reject(new Error(`API request timed out after ${this.requestTimeoutMs}ms`)),
-                        this.requestTimeoutMs
-                    )
-                ),
-            ])
+
+            return new Promise<TResponse>((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    reject(new Error(`Request timed out after ${this.requestTimeoutMs}ms`))
+                }, this.requestTimeoutMs)
+
+                apiFunction()
+                    .then((response) => {
+                        clearTimeout(timer)
+                        resolve(response)
+                    })
+                    .catch((error) => {
+                        clearTimeout(timer)
+                        reject(error)
+                    })
+            })
         }
 
         try {
@@ -451,6 +458,72 @@ export class ClientService {
     }
 
     /**
+     * Paginate SearchApi operations using a generator to yield pages as they arrive.
+     * Use this for large datasets where buffering all results in memory is not feasible.
+     * Respects SailPoint search semantics (searchAfter).
+     *
+     * @param search - The search object
+     * @param priority - Optional priority for the page requests
+     * @param context - Optional hint for error logs
+     * @param abortSignal - Signal to abort the operation
+     * @yields Arrays of items (pages) as they are fetched
+     */
+    public async *paginateSearchApiGenerator<T>(
+        search: Search,
+        priority: QueuePriority = QueuePriority.NORMAL,
+        context?: string,
+        abortSignal?: AbortSignal
+    ): AsyncGenerator<T[], void, unknown> {
+        const pageSize = this.pageSize
+        const baseSearch: Search = {
+            ...search,
+            sort: ['id'], // Ensure sort by id for searchAfter
+        }
+
+        let searchAfter: any[] | undefined
+        let isFirstPage = true
+        let hasMore = true
+        let pageNum = 1
+
+        while (hasMore) {
+            if (abortSignal?.aborted) return
+
+            const pageContext = context ? `${context} [page ${pageNum}]` : `search [page ${pageNum}]`
+            const response = await this.execute<any>(
+                () =>
+                    this.searchApi.searchPost({
+                        search: searchAfter ? { ...baseSearch, searchAfter } : baseSearch,
+                        limit: pageSize,
+                        count: isFirstPage ? true : undefined,
+                    }),
+                priority,
+                pageContext,
+                abortSignal
+            )
+
+            const items = (response?.data || []) as T[]
+            if (items.length > 0) {
+                yield items
+            }
+
+            if (items.length < pageSize) {
+                hasMore = false
+            } else {
+                const lastItem: any = items[items.length - 1]
+                const lastId = lastItem?.id
+                if (!lastId) {
+                    hasMore = false
+                } else {
+                    searchAfter = [lastId]
+                }
+            }
+
+            isFirstPage = false
+            pageNum += 1
+        }
+    }
+
+    /**
      * Get queue statistics (returns empty stats if queue is disabled)
      */
     public getQueueStats(): QueueStats {
@@ -580,4 +653,6 @@ export class ClientService {
             }
         }
     }
+
+
 }

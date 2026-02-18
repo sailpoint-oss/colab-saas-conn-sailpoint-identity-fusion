@@ -49,7 +49,6 @@ export const accountList = async (
     try {
         log.info('Starting aggregation')
         const timer = log.timer()
-        const abortController = new AbortController()
         let phase = 1
 
         await sources.fetchAllSources()
@@ -81,16 +80,16 @@ export const accountList = async (
         log.info('Attribute counters initialized')
         timer.phase(`PHASE ${phase++}: Setup and initialization`)
 
-        log.info('Fetching fusion accounts, identities, managed accounts, and sender')
+        log.info('Fetching fusion accounts, identities, managed accounts, form data, and sender')
         const fetchPromises = [
             sources.fetchFusionAccounts(),
             identities.fetchIdentities(),
-            sources.fetchManagedAccounts(abortController.signal),
+            sources.fetchManagedAccounts(),
             messaging.fetchSender(),
+            forms.fetchFormData(),
         ]
 
         await Promise.all(fetchPromises)
-        // Use count getters to avoid creating temporary arrays just for .length
         log.info(`Loaded ${sources.fusionAccountCount} fusion account(s), ${identities.identityCount} identities, ${sources.managedAccountsById.size} managed account(s)`)
         const fusionOwner = sources.fusionSourceOwner
         if (fusion.fusionReportOnAggregation) {
@@ -101,10 +100,6 @@ export const accountList = async (
             }
         }
         timer.phase(`PHASE ${phase++}: Fetching data in parallel`)
-
-        log.info(`Step ${phase}.0: Processing fusion forms and instances`)
-        await forms.fetchFormData()
-        log.info('Form data loaded')
 
         log.info(`Step ${phase}.1: Processing existing fusion accounts`)
         await fusion.processFusionAccounts()

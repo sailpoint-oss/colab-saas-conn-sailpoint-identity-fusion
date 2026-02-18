@@ -401,6 +401,11 @@ export class FusionAccount {
         return this._uncorrelated
     }
 
+    /** Whether this is a managed account. */
+    public get isManaged(): boolean {
+        return this._type === 'managed'
+    }
+
     /** Whether this fusion account is disabled. */
     public get disabled(): boolean {
         return this._disabled
@@ -419,6 +424,19 @@ export class FusionAccount {
     /** Whether this account matched any existing fusion identity during scoring. */
     public get isMatch(): boolean {
         return this._isMatch
+    }
+
+    /**
+     * Converts the fusion account to a standard SDK Account object for output.
+     */
+    public toISCAccount(): any {
+        return {
+            identity: this.nativeIdentity,
+            uuid: this.nativeIdentity,
+            attributes: this.attributes,
+            disabled: this.disabled,
+            key: this.key
+        }
     }
 
     // ============================================================================

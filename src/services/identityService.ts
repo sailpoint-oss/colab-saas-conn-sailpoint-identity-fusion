@@ -119,6 +119,49 @@ export class IdentityService {
     }
 
     /**
+     * Fetch identities as an async generator using search pagination.
+     */
+    public async *fetchIdentitiesGenerator(abortSignal?: AbortSignal): AsyncGenerator<IdentityDocument[]> {
+        if (!this.includeIdentities) {
+            this.log.info('Identity fetching disabled by configuration, skipping identity fetch.')
+            return
+        }
+
+        if (this.identityScopeQuery) {
+            this.log.info('Fetching identities (streaming).')
+
+            const query: Search = {
+                indices: ['identities'],
+                query: {
+                    query: this.identityScopeQuery,
+                },
+                queryResultFilter: {
+                    includes: ['id', 'name', 'displayName', 'email', 'attributes', 'accounts', 'disabled', 'protected'],
+                },
+                includeNested: true,
+            }
+
+            try {
+                yield* this.client.paginateSearchApiGenerator<IdentityDocument>(
+                    query,
+                    undefined,
+                    'IdentityService>fetchIdentitiesGenerator searchPost',
+                    abortSignal
+                )
+            } catch (error) {
+                if (error instanceof ConnectorError) throw error
+                const detail = error instanceof Error ? error.message : String(error)
+                throw new ConnectorError(
+                    `Failed to fetch identities using scope query "${this.identityScopeQuery}": ${detail}`,
+                    ConnectorErrorType.Generic
+                )
+            }
+        } else {
+            this.log.info('No identity scope query defined, skipping identity fetch.')
+        }
+    }
+
+    /**
      * Fetches a single identity by ID and adds it to the cache.
      *
      * @param id - The ISC identity ID to fetch
