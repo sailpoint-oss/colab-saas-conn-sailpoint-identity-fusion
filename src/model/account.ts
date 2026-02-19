@@ -1014,6 +1014,7 @@ export class FusionAccount {
             this._attributeBag.accounts.push(account.attributes ?? {})
             // Invalidate cached sourceAttributeMap since sources changed
             this._sourceAttributeMapCache = undefined
+            this._type = 'managed'
         }
     }
     /** Sets whether this account's attributes need refreshing. */

@@ -108,12 +108,12 @@ Configure **Source Settings → Sources** to specify which sources contribute ac
 
 Configure **Source Settings → Processing Control** for account lifecycle:
 
-| Field                                                       | Recommended for deduplication | Rationale                                                                                                                                                                                                                                                     |
-| ----------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Maximum history messages**                                | 10 (default)                  | Balance between audit trail and storage                                                                                                                                                                                                                       |
-| **Delete accounts with no authoritative accounts left?**    | Yes                           | Auto-cleanup when person leaves organization and all source accounts are removed                                                                                                                                                                              |
-| **Correlate missing source accounts on aggregation?**       | Yes                           | Automatically correlate new or previously missing source accounts. When this is **disabled**, a new managed account will **not** be correlated to an existing identity during aggregation unless you also configure an enforced correlation role (see below). |
-| **Force attribute refresh on each aggregation?**            | No                            | Applies only to Normal-type attributes; Unique attributes are only computed on account creation or activation. Expensive if attributes change frequently.                                                                                                     |
+| Field                                                    | Recommended for deduplication | Rationale                                                                                                                                                                                                                                                     |
+| -------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Maximum history messages**                             | 10 (default)                  | Balance between audit trail and storage                                                                                                                                                                                                                       |
+| **Delete accounts with no authoritative accounts left?** | Yes                           | Auto-cleanup when person leaves organization and all source accounts are removed                                                                                                                                                                              |
+| **Correlate missing source accounts on aggregation?**    | Yes                           | Automatically correlate new or previously missing source accounts. When this is **disabled**, a new managed account will **not** be correlated to an existing identity during aggregation unless you also configure an enforced correlation role (see below). |
+| **Force attribute refresh on each aggregation?**         | No                            | Applies only to Normal-type attributes; Unique attributes are only computed on account creation or activation. Expensive if attributes change frequently.                                                                                                     |
 
 > **Important:** When merging a new managed account with an existing identity, managed account correlation will only occur if **Correlate missing source accounts on aggregation?** is enabled **or** you have configured an **enforced correlation role** that drives that correlation. Otherwise, the connector will not correlate the new managed account automatically.
 
@@ -276,7 +276,9 @@ Include attributes that help reviewers decide if identities are duplicates:
 
 ### Create reviewer access profiles
 
-For each source, create an access profile that grants reviewer permissions:
+For each source, create an access profile that grants reviewer permissions. The connector automatically creates a dedicated reviewer entitlement for each managed source that can be assigned to your users.
+
+While the connector supports establishing the current source owner as a **global reviewer** for all managed sources (via "Owner is global reviewer?"), it is recommended to use the dedicated per-source reviewer entitlements for granular control.
 
 | Access profile                 | Entitlement                                        | Assignment                         |
 | ------------------------------ | -------------------------------------------------- | ---------------------------------- |
