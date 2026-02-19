@@ -223,6 +223,9 @@ export class LogService {
     // Track pending external log promises so they can be flushed before process exit.
     // Uses a Set for O(1) add/delete instead of array indexOf which is O(n).
     private pendingExternalLogs: Set<Promise<void>> = new Set()
+    /** Per-request timeout for external log fetches to prevent unbounded memory growth
+     *  when the endpoint is unreachable (TCP timeouts can be 30-120s+ at the OS level). */
+    private static readonly EXTERNAL_LOG_TIMEOUT_MS = 5_000
 
     /**
      * @param config - Logging configuration including level, debug flag, and external logging settings
@@ -324,6 +327,7 @@ export class LogService {
                 'Content-Type': 'text/plain',
             },
             body: logMessage,
+            signal: AbortSignal.timeout(LogService.EXTERNAL_LOG_TIMEOUT_MS),
         }).then(() => {
             // Discard response - we only care about delivery
         }).catch(() => {
