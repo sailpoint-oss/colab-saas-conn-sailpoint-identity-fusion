@@ -552,7 +552,7 @@ export class ClientService {
         setInterval(() => {
             const stats = this.queue!.getStats()
             if (stats.queueLength > 0 || stats.activeRequests > 0) {
-                this.log.debug(
+                this.log.info(
                     `Queue Stats: ${stats.activeRequests} active, ${stats.queueLength} queued, ` +
                     `${stats.totalProcessed} processed, ${stats.totalFailed} failed, ` +
                     `avg wait: ${stats.averageWaitTime.toFixed(0)}ms, ` +

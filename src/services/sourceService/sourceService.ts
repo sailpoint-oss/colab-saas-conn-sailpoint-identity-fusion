@@ -16,7 +16,7 @@ import {
 } from 'sailpoint-api-client'
 import { ConnectorError, ConnectorErrorType } from '@sailpoint/connector-sdk'
 import { BaseConfig, FusionConfig, SourceConfig } from '../../model/config'
-import { ClientService } from '../clientService'
+import { ClientService, QueuePriority } from '../clientService'
 import { LogService } from '../logService'
 import { assert, softAssert } from '../../utils/assert'
 import { getDateFromISOString } from '../../utils/date'
@@ -456,7 +456,7 @@ export class SourceService {
                         fetchedCount += batch.length
                     }
 
-                    this.log.info(`Source ${source.name}: fetched ${fetchedCount} account(s)`)
+                    this.log.info(`Source ${source.name}: fetching ${fetchedCount} account(s)`)
 
                     // Update cumulative count
                     if (source.config?.accountLimit !== undefined) {
@@ -674,7 +674,7 @@ export class SourceService {
             return response.data
         }
         const ctx = context ?? 'SourceService>patchSourceConfig'
-        return await this.client.execute(updateSource, undefined, ctx)
+        return await this.client.execute(updateSource, QueuePriority.URGENT, ctx)
     }
 
     // ------------------------------------------------------------------------

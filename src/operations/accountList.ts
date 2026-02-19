@@ -156,13 +156,6 @@ export const accountList = async (
             timer.phase(`PHASE ${phase++}: Generating fusion report`)
         }
 
-        await attributes.saveState()
-        log.info('Attribute state saved')
-        await sources.saveBatchCumulativeCount()
-        log.info('Batch cumulative count saved')
-
-        timer.phase(`PHASE ${phase++}: Saving state and clearing memory`)
-
         // Memory optimization: clear analyzed account arrays regardless of report flag.
         // generateReport() clears them internally, but if reporting is disabled they would
         // persist for the lifetime of the operation.
@@ -171,10 +164,17 @@ export const accountList = async (
         await forms.cleanUpForms()
         log.info('Form cleanup completed')
 
+        timer.phase(`PHASE ${phase++}: Cleanup and memory reclamation`)
+
         log.info('Sending accounts to platform')
         const count = await fusion.forEachISCAccount((account) => res.send(account))
         log.info(`Sent ${count} account(s) to platform`)
-        timer.phase(`PHASE ${phase++}: Finalizing and sending accounts`)
+        timer.phase(`PHASE ${phase++}: Sending accounts to platform`)
+
+        await attributes.saveState()
+        log.info('Attribute state saved')
+        await sources.saveBatchCumulativeCount()
+        log.info('Batch cumulative count saved')
 
         sources.clearFusionAccounts()
         log.info('Account caches cleared from memory')

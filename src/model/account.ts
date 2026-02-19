@@ -746,10 +746,14 @@ export class FusionAccount {
 
     /**
      * Resolve all pending operations (reviews and correlations)
+     * @param awaitCorrelations - When false, correlation promises are left running
+     *   in the background so the caller can proceed without waiting for the queue to drain.
      */
-    public async resolvePendingOperations(): Promise<void> {
+    public async resolvePendingOperations(awaitCorrelations = true): Promise<void> {
         await this.resolveReviewPromises()
-        await this.resolveCorrelationPromises()
+        if (awaitCorrelations) {
+            await this.resolveCorrelationPromises()
+        }
         this.resolvePendingReviewUrls()
     }
 

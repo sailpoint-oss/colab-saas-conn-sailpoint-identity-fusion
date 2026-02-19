@@ -292,6 +292,11 @@ export class IdentityService {
         const accountIdsToCorrelate = [...missingAccountIds]
 
         accountIdsToCorrelate.forEach((accountId) => {
+            // Optimistic: mark as correlated before the API call so the account
+            // output reflects a successful correlation without waiting for the queue.
+            // If the API call fails, the next aggregation will re-detect it as uncorrelated.
+            fusionAccount.setCorrelatedAccount(accountId)
+
             const requestParameters: AccountsApiUpdateAccountRequest = {
                 id: accountId,
                 requestBody: [
@@ -303,21 +308,15 @@ export class IdentityService {
                 ],
             }
 
-            // Use client.execute to ensure proper queue handling if enabled
             const correlationPromise = this.client
                 .execute(() => accountsApi.updateAccount(requestParameters))
                 .then(() => {
-                    // On success, mark account as correlated and remove from missing list
-                    // This also adds history entry
-                    fusionAccount.setCorrelatedAccount(accountId)
                     this.log.debug(`Successfully correlated account ${accountId} to identity ${identityId}`)
                 })
                 .catch((error) => {
                     this.log.error(`Failed to correlate account ${accountId}: ${error}`)
-                    // Don't re-throw - we want Promise.allSettled to handle it gracefully
                 })
 
-            // Track the promise - it will be resolved in getISCAccount via resolvePendingOperations
             fusionAccount.addCorrelationPromise(accountId, correlationPromise)
         })
 

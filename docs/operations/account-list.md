@@ -30,6 +30,7 @@ The Account List operation is the main entry point for identity fusion. It perfo
         - Managed account layer is applied to match collected managed accounts with Fusion accounts.
         - Assignment decision layer is applied to match Fusion reviews that resulted in identity assignment.
         - Attribute mapping is applied first, then **normal** attribute definitions are evaluated. Normal attribute values feed into the Velocity context and are available for Fusion matching/scoring.
+    - **Optimistic correlation**: When `correlateOnAggregation` is enabled, missing accounts are marked as correlated *immediately* before the API call is enqueued, so the account output reflects a successful correlation without waiting for the queue to drain. Correlation API calls proceed as fire-and-forget in the background; any failures are logged and will be re-detected on the next aggregation.
 
 4.  **Identity Processing** (attribute mapping + normal definitions):
     - Processes all *identities*. This creates new fusion identities for identities that don't yet have a fusion account but should. This step also "depletes" the matching managed accounts from the work queue (the map of all managed accounts).
@@ -44,7 +45,8 @@ The Account List operation is the main entry point for identity fusion. It perfo
 6.  **Managed Account Processing (Deduplication)**:
     - Processes any remaining managed accounts in the work queue.
     - These are accounts that were *not* matched to an existing fusion account or an identity.
-    - This step handles deduplication, if configured, and creates new Fusion accounts if no match or no deduplication is configured.
+    - **Reviewer validation**: Before scoring begins, each managed source is checked for valid reviewers. Sources without a configured reviewer are logged once as an error and their accounts bypass scoring entirely, being added as unmatched directly.
+    - For sources with valid reviewers, the full deduplication pipeline runs: scoring, auto-correlation (for perfect matches when enabled), review form creation (for partial matches), or unmatched addition.
 
 7.  **Form & Entitlement Reconciliation**:
     - Updates processed Fusion accounts with review information.
@@ -59,15 +61,18 @@ The Account List operation is the main entry point for identity fusion. It perfo
 9.  **Reporting (Conditional)**:
     - If `fusionReportOnAggregation` is enabled, generates a fusion report for the fusion owner.
 
-10. **State Saving & Cleanup**:
-    - Saves attribute generation state (counters).
-    - Saves batch cumulative counts.
+10. **Cleanup & Memory Reclamation**:
     - Clears analyzed account caches and managed account caches.
     - Manages form cleanup.
 
 11. **Output Generation**:
     - Iterates through all processed fusion accounts and sends them to ISC.
     - Accounts whose fusion identity attribute is empty are omitted when "Skip accounts with a missing identifier" is enabled (see Behavior Notes).
+
+12. **State Saving & Final Cleanup**:
+    - Saves attribute generation state (counters).
+    - Saves batch cumulative counts.
+    - State is saved *after* output generation so that a failure during transmission prevents stale state from being persisted.
     - Clears fusion account caches from memory.
     - Releases the process lock. The lock is released in a `finally` block, so it is also released if the operation fails after acquisition.
 
@@ -80,6 +85,14 @@ Normal attributes are created **before** Fusion matching occurs (steps 3–6). U
 ### Attribute mapping and unique definition synergy
 
 Attribute mapping can be used in conjunction with unique attribute definitions to preload attributes from existing managed accounts, identities, and Fusion accounts into the Velocity context. The unique attribute definition then runs and sets a value guaranteed to be different from any other account or identity.
+
+### Optimistic correlation provisioning
+
+When `correlateOnAggregation` is enabled, correlations are applied optimistically: each missing account is marked as correlated before the API call is submitted to the queue. This allows the connector to return accounts reflecting a successful correlation without waiting for the queue to process all requests. The correlation API calls continue in the background after the handler returns. If a correlation fails, the error is logged and the next aggregation will re-detect the account as uncorrelated from ISC source data.
+
+### Reviewer validation for managed account scoring
+
+Before the managed account scoring loop begins, each managed source is validated for reviewer availability. Sources that lack a valid reviewer cannot create review forms for partial matches, making the scoring step unnecessary. Accounts from these sources skip scoring entirely and are added as unmatched. A single error is logged per source, avoiding the per-account warning that would otherwise repeat for every managed account without a reviewer.
 
 ### Preventing Fusion account creation (empty nativeIdentity skip pattern)
 

@@ -40,6 +40,7 @@ export class FusionService {
     // Minimal report data for non-matches (avoids holding full FusionAccount objects)
     private analyzedNonMatchReportData: FusionReportAccount[] = []
     private _reviewersBySourceId: Map<string, Set<FusionAccount>> = new Map()
+    private _sourcesWithoutReviewers: Set<string> = new Set()
     private readonly sourcesByName: Map<string, SourceInfo> = new Map()
     private readonly reset: boolean
     private readonly correlateOnAggregation: boolean
@@ -519,6 +520,19 @@ export class FusionService {
         const map = this.sources.managedAccountsById
         assert(map, 'Managed accounts have not been loaded')
         this.newManagedAccountsCount = map.size
+
+        this._sourcesWithoutReviewers = new Set()
+        for (const source of this.sources.managedSources) {
+            const reviewers = this._reviewersBySourceId.get(source.id)
+            if (!reviewers || reviewers.size === 0) {
+                this._sourcesWithoutReviewers.add(source.name)
+                this.log.error(
+                    `No valid reviewer configured for source "${source.name}". ` +
+                    `Managed accounts from this source will be treated as unmatched.`
+                )
+            }
+        }
+
         this.log.info(`Processing ${map.size} managed account(s)`)
         await forEachMapBatched(map, async (x: Account) => {
             await this.processManagedAccount(x)
@@ -535,6 +549,13 @@ export class FusionService {
      * @returns The fusion account produced or updated, or undefined if skipped or sent for manual review
      */
     public async processManagedAccount(account: Account): Promise<FusionAccount | undefined> {
+        if (account.sourceName && this._sourcesWithoutReviewers.has(account.sourceName)) {
+            const fusionAccount = await this.preProcessManagedAccount(account)
+            fusionAccount.setUnmatched()
+            this.setFusionAccount(fusionAccount)
+            return fusionAccount
+        }
+
         const fusionAccount = await this.analyzeManagedAccount(account)
 
         if (fusionAccount.isMatch) {
@@ -753,7 +774,7 @@ export class FusionService {
 
         for (const account of this.fusionAccountMap.values()) {
             if (shouldFilter && account.isOrphan()) continue
-            const output = await this.getISCAccount(account)
+            const output = await this.getISCAccount(account, false)
             if (output) {
                 send(output)
                 count++
@@ -761,7 +782,7 @@ export class FusionService {
         }
         for (const identity of this.fusionIdentityMap.values()) {
             if (shouldFilter && identity.isOrphan()) continue
-            const output = await this.getISCAccount(identity)
+            const output = await this.getISCAccount(identity, false)
             if (output) {
                 send(output)
                 count++
@@ -789,9 +810,9 @@ export class FusionService {
      * @param fusionAccount - The fusion account to convert
      * @returns The formatted account output for the platform, or undefined if key cannot be generated
      */
-    public async getISCAccount(fusionAccount: FusionAccount): Promise<StdAccountListOutput | undefined> {
-        await fusionAccount.resolvePendingOperations()
-        // Update correlation status/action after all correlation promises have resolved
+    public async getISCAccount(fusionAccount: FusionAccount, awaitCorrelations = true): Promise<StdAccountListOutput | undefined> {
+        await fusionAccount.resolvePendingOperations(awaitCorrelations)
+        // Update correlation status/action based on whatever correlations have resolved so far
         fusionAccount.updateCorrelationStatus()
         // Sync collection state (reviews, accounts, statuses, actions) into the attribute bag
         // so that the subset and output include current values (e.g. reviewer review URLs).
