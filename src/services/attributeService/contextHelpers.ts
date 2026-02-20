@@ -8,20 +8,26 @@ import parseAddressString from 'parse-address-string'
 import { capitalizeFirst } from '../../utils'
 
 /**
- * Wraps a Normalize helper that may return undefined. When it does, logs and returns ''
- * so Velocity renders nothing instead of the raw expression.
+ * Wraps a Normalize helper that may return undefined or throw.
+ * Returns '' on failure so Velocity renders nothing instead of the raw expression.
  */
 function withNormalizeFallback<T extends (...args: any[]) => string | undefined>(
     helperName: string,
     fn: T
 ): (...args: Parameters<T>) => string {
     return (...args: Parameters<T>): string => {
-        const result = fn(...args)
-        if (result === undefined) {
-            logger.debug(`Normalize.${helperName} returned undefined for input: ${JSON.stringify(args[0])}`)
+        try {
+            const result = fn(...args)
+            if (result === undefined) {
+                logger.debug(`Normalize.${helperName} returned undefined for input: ${JSON.stringify(args[0])}`)
+                return ''
+            }
+            return result
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error)
+            logger.debug(`Normalize.${helperName} threw for input ${JSON.stringify(args[0])}: ${msg}`)
             return ''
         }
-        return result
     }
 }
 
@@ -110,7 +116,8 @@ const parseAddressSync = (addressString: string): ParsedAddress | null => {
 }
 
 const normalizeDate = (date: string): string | undefined => {
-    return parse.fromAny(date).toISOString()
+    const parsed = parse.fromAny(date)
+    return parsed.isValid() ? parsed.toISOString() : undefined
 }
 
 const normalizePhoneNumber = (phone: string, defaultCountry: CountryCode = 'US'): string | undefined => {

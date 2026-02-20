@@ -131,6 +131,7 @@ export interface ScopeSection {
 /** Configuration for a single managed source that feeds into fusion. */
 export interface SourceConfig {
     name: string
+    enabled?: boolean
     forceAggregation?: boolean
     accountFilter?: string
     accountLimit?: number

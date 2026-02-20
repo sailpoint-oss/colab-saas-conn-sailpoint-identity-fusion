@@ -102,15 +102,18 @@ export const safeReadConfig = async (): Promise<FusionConfig> => {
     // Source Settings defaults
     // ============================================================================
     // Set defaults for each source configuration
-    config.sources = config.sources.map((sourceConfig: SourceConfig) => {
-        assert(sourceConfig, 'Source configuration is required')
-        assert(sourceConfig.name, 'Source name is required')
-        return {
-            ...sourceConfig,
-            forceAggregation: sourceConfig.forceAggregation ?? false,
-            accountFilter: sourceConfig.accountFilter ?? undefined,
-        }
-    })
+    config.sources = config.sources
+        .map((sourceConfig: SourceConfig) => {
+            assert(sourceConfig, 'Source configuration is required')
+            assert(sourceConfig.name, 'Source name is required')
+            return {
+                ...sourceConfig,
+                enabled: sourceConfig.enabled ?? true,
+                forceAggregation: sourceConfig.forceAggregation ?? false,
+                accountFilter: sourceConfig.accountFilter ?? undefined,
+            }
+        })
+        .filter((sourceConfig: SourceConfig) => sourceConfig.enabled)
 
     softAssert(config.sources.length > 0, 'No sources configured - no deduplication will be performed', 'warn')
     // Global aggregation task polling defaults (used for all sources with force aggregation enabled)

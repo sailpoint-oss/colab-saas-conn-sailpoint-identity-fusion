@@ -307,7 +307,11 @@ export class ClientService {
             priority,
             context ? `${context} [page 1, offset 0]` : 'list [page 1, offset 0]'
         )
-        const initialPage = initialResponse?.data || []
+        if (!initialResponse) {
+            const ctx = context ?? 'paginate'
+            throw new Error(`Pagination failed on initial page (${ctx}). The API call returned no data.`)
+        }
+        const initialPage = initialResponse.data || []
         allItems.push(...initialPage)
 
         // If the first page is smaller than requested, we already have all data
@@ -354,7 +358,14 @@ export class ClientService {
                 priority,
                 context ? `${context} [page, offset ${offset}]` : `list [page, offset ${offset}]`
             )
-            const pageData = pageResponse?.data || []
+            if (!pageResponse) {
+                const ctx = context ?? 'paginate'
+                throw new Error(
+                    `Pagination failed at offset ${offset} (${ctx}). ` +
+                    `${allItems.length} item(s) collected before failure.`
+                )
+            }
+            const pageData = pageResponse.data || []
 
             // If we get an empty page, we've reached the end
             if (pageData.length === 0) {
@@ -569,7 +580,7 @@ export class ClientService {
      *
      * Strategy:
      * 1. Fetch the first page with count=true to get X-Total-Count.
-     * 2. Calculate remaining pages/offsets.
+     * 2. Calculate remaining pages/offsets (capped by `limit` when provided).
      * 3. Fetch remaining pages in parallel batches to maximize throughput.
      * 4. Yield items from each page as soon as the request completes.
      *
@@ -578,6 +589,8 @@ export class ClientService {
      * @param priority - Queue priority
      * @param context - Context hint for logs
      * @param abortSignal - Signal to abort the operation
+     * @param limit - Maximum number of items to fetch. When set, only the pages needed
+     *               to reach this count are requested, avoiding unnecessary API calls.
      * @yields Arrays of items (pages) as they are fetched
      */
     public async *paginateParallel<T, TRequestParams = any>(
@@ -585,7 +598,8 @@ export class ClientService {
         baseParameters: Partial<TRequestParams> = {},
         priority: QueuePriority = QueuePriority.NORMAL,
         context?: string,
-        abortSignal?: AbortSignal
+        abortSignal?: AbortSignal,
+        limit?: number
     ): AsyncGenerator<T[], void, unknown> {
         const pageSize = this.pageSize
         const SAILPOINT_LIST_MAX = 250
@@ -613,15 +627,23 @@ export class ClientService {
         const initialItems = initialResponse.data || []
         yield initialItems
 
+        // Stop early if consumer limit already satisfied by the first page
+        if (limit !== undefined && initialItems.length >= limit) {
+            return
+        }
+
         const totalCount = parseInt(initialResponse.headers?.['x-total-count'] || '0', 10)
         // If no total count or total <= page size, we are done
         if (!totalCount || totalCount <= initialItems.length) {
             return
         }
 
+        // Cap the fetch ceiling at the consumer's limit (when provided)
+        const fetchCeiling = limit !== undefined ? Math.min(totalCount, limit) : totalCount
+
         // Calculate offsets for remaining pages
         const offsets: number[] = []
-        for (let offset = initialItems.length; offset < totalCount; offset += effectivePageSize) {
+        for (let offset = initialItems.length; offset < fetchCeiling; offset += effectivePageSize) {
             offsets.push(offset)
         }
 

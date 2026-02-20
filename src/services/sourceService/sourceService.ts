@@ -353,11 +353,12 @@ export class SourceService {
 
     /**
      * Fetch accounts as an async generator using parallel pagination.
+     * @param limit - When provided, only the pages needed to reach this count are requested.
      */
     public async *fetchAccountsBySourceIdGenerator(
         sourceId: string,
-        limit?: number,
-        abortSignal?: AbortSignal
+        abortSignal?: AbortSignal,
+        limit?: number
     ): AsyncGenerator<Account[], void, unknown> {
         const { accountsApi } = this.client
         const sourceInfo = this.sourcesById.get(sourceId)
@@ -372,7 +373,6 @@ export class SourceService {
 
         const requestParameters: AccountsApiListAccountsRequest = {
             filters,
-            limit,
             sorters,
         }
 
@@ -381,7 +381,7 @@ export class SourceService {
         }
         const ctx = `SourceService>fetchAccountsBySourceIdGenerator ${sourceInfo.name}`
 
-        yield* this.client.paginateParallel(listAccounts, requestParameters, undefined, ctx, abortSignal)
+        yield* this.client.paginateParallel(listAccounts, requestParameters, undefined, ctx, abortSignal, limit)
     }
 
 
@@ -436,11 +436,11 @@ export class SourceService {
             await Promise.all(
                 sourcesWithLimits.map(async ({ source, effectiveLimit }) => {
                     this.log.info(`Fetching accounts from source: ${source.name}`)
-                    let fetchedCount = 0
+                    let collectedCount = 0
 
-                    // Consume generator and populate cache incrementally
-                    for await (const batch of this.fetchAccountsBySourceIdGenerator(source.id, effectiveLimit, abortSignal)) {
+                    for await (const batch of this.fetchAccountsBySourceIdGenerator(source.id, abortSignal, effectiveLimit)) {
                         for (const account of batch) {
+                            if (effectiveLimit && collectedCount >= effectiveLimit) break
                             if (account.id) {
                                 this.managedAccountsById.set(account.id, account)
                                 if (account.identityId) {
@@ -451,18 +451,21 @@ export class SourceService {
                                     }
                                     idSet.add(account.id)
                                 }
+                                collectedCount++
                             }
                         }
-                        fetchedCount += batch.length
+                        if (effectiveLimit && collectedCount >= effectiveLimit) {
+                            this.log.info(`Source ${source.name}: reached effectiveLimit of ${effectiveLimit}, stopping`)
+                            break
+                        }
                     }
 
-                    this.log.info(`Source ${source.name}: fetching ${fetchedCount} account(s)`)
+                    this.log.info(`Source ${source.name}: collected ${collectedCount} account(s)`)
 
-                    // Update cumulative count
                     if (source.config?.accountLimit !== undefined) {
-                        this.batchCumulativeCount[source.name] = fetchedCount
+                        this.batchCumulativeCount[source.name] = collectedCount
                         this.log.debug(
-                            `Source ${source.name}: updated cumulative count to ${fetchedCount}`
+                            `Source ${source.name}: updated cumulative count to ${collectedCount}`
                         )
                     }
                 })

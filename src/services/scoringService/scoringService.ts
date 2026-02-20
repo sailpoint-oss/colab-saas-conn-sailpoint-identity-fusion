@@ -77,10 +77,11 @@ export class ScoringService {
         for (const matching of this.matchingConfigs) {
             const accountAttribute = fusionAccount.attributes[matching.attribute]
             const identityAttribute = fusionIdentity.attributes[matching.attribute]
-            if (accountAttribute && identityAttribute) {
+            const hasValues = accountAttribute && identityAttribute
+            if (hasValues || matching.mandatory) {
                 const scoreReport: ScoreReport = this.scoreAttribute(
-                    accountAttribute.toString(),
-                    identityAttribute.toString(),
+                    (accountAttribute ?? '').toString(),
+                    (identityAttribute ?? '').toString(),
                     matching
                 )
                 if (!scoreReport.isMatch && matching.mandatory && !fullRun) {

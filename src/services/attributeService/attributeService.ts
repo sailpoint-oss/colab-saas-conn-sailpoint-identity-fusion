@@ -115,16 +115,10 @@ export class AttributeService {
             await this.locks.waitForAllPendingOperations()
         }
         const stateWrapper = this.getStateWrapper()
-
-        if (this.log) {
-            this.log.debug(`Reading state - StateWrapper has ${stateWrapper.state.size} entries`)
-        }
+        this.log.debug(`Reading state - StateWrapper has ${stateWrapper.state.size} entries`)
 
         const state = stateWrapper.getState()
-
-        if (this.log) {
-            this.log.debug(`getState() returned: ${JSON.stringify(state)}`)
-        }
+        this.log.debug(`getState() returned: ${JSON.stringify(state)}`)
 
         return state
     }
@@ -146,21 +140,16 @@ export class AttributeService {
     public async initializeCounters(): Promise<void> {
         const stateWrapper = this.getStateWrapper()
         const counterDefinitions = this.uniqueDefinitions.filter((def) => def.useIncrementalCounter)
+        if (counterDefinitions.length === 0) return
 
-        if (counterDefinitions.length === 0) {
-            return
-        }
-
-        if (this.log) {
-            this.log.debug(`Initializing ${counterDefinitions.length} incremental counter attributes`)
-            const existingCounters = Object.fromEntries(
-                Array.from(stateWrapper.state.entries()).filter(([key]) =>
-                    counterDefinitions.some((def) => def.name === key)
-                )
+        this.log.debug(`Initializing ${counterDefinitions.length} incremental counter attributes`)
+        const existingCounters = Object.fromEntries(
+            Array.from(stateWrapper.state.entries()).filter(([key]) =>
+                counterDefinitions.some((def) => def.name === key)
             )
-            if (Object.keys(existingCounters).length > 0) {
-                this.log.debug(`Preserving existing counter values: ${JSON.stringify(existingCounters)}`)
-            }
+        )
+        if (Object.keys(existingCounters).length > 0) {
+            this.log.debug(`Preserving existing counter values: ${JSON.stringify(existingCounters)}`)
         }
 
         await Promise.all(
@@ -170,16 +159,14 @@ export class AttributeService {
             })
         )
 
-        if (this.log) {
-            const finalCounters: { [key: string]: number } = {}
-            counterDefinitions.forEach((def) => {
-                const value = stateWrapper.state.get(def.name)
-                if (value !== undefined) {
-                    finalCounters[def.name] = value
-                }
-            })
-            this.log.debug(`All incremental counters initialized. Current values: ${JSON.stringify(finalCounters)}`)
+        const finalCounters: { [key: string]: number } = {}
+        for (const def of counterDefinitions) {
+            const value = stateWrapper.state.get(def.name)
+            if (value !== undefined) {
+                finalCounters[def.name] = value
+            }
         }
+        this.log.debug(`All incremental counters initialized. Current values: ${JSON.stringify(finalCounters)}`)
     }
 
     // ------------------------------------------------------------------------
@@ -196,45 +183,36 @@ export class AttributeService {
      * @param fusionAccount - The fusion account to map attributes for
      */
     public mapAttributes(fusionAccount: FusionAccount): void {
-        const { attributeBag, needsRefresh } = fusionAccount
+        if (fusionAccount.type === 'identity') return
 
-        // Start with current attributes as default
+        const { attributeBag, needsRefresh } = fusionAccount
         const attributes = { ...attributeBag.current }
 
-        if (fusionAccount.type === 'identity') {
-            return
-        }
-
-        // Use attributeBag.sources directly instead of creating a copy.
         // Ensure all fusionAccount sources have an entry (default to [] if missing).
         const sourceAttributeMap = attributeBag.sources
-        const sourceOrder = this.sourceConfigs.map((sc) => sc.name)
-
         for (const source of fusionAccount.sources) {
             if (!sourceAttributeMap.has(source)) {
                 sourceAttributeMap.set(source, [])
             }
         }
 
-        // If refresh is needed, process source attributes in established order
-        if ((needsRefresh) && sourceAttributeMap.size > 0) {
+        if (needsRefresh && sourceAttributeMap.size > 0) {
+            const sourceOrder = this.sourceConfigs.map((sc) => sc.name)
             const schemaAttributes = this.schemas.listSchemaAttributeNames()
             for (const attribute of schemaAttributes) {
-                // Preserve generated unique values
                 if (this.uniqueAttributeNames.has(attribute) && attributeBag.current[attribute] !== undefined) {
                     continue
                 }
 
                 const processingConfig = this.attributeMappingConfig.get(attribute)!
                 const processedValue = processAttributeMapping(processingConfig, sourceAttributeMap, sourceOrder)
+                if (processedValue === undefined) continue
 
-                if (processedValue !== undefined) {
-                    attributes[attribute] = processedValue
-                    if (attribute === 'history') {
-                        const history = processedValue as string[]
-                        if (Array.isArray(history) && history.length > 0) {
-                            fusionAccount.importHistory(history)
-                        }
+                attributes[attribute] = processedValue
+                if (attribute === 'history') {
+                    const history = processedValue as string[]
+                    if (Array.isArray(history) && history.length > 0) {
+                        fusionAccount.importHistory(history)
                     }
                 }
             }
@@ -314,27 +292,22 @@ export class AttributeService {
         for (const def of this.uniqueDefinitions) {
             const value = fusionAccount.attributes[def.name]
             const isEmpty = value === undefined || value === null || value === ''
-            const needsReset = fusionAccount.needsReset
-            if (isEmpty || needsReset) {
-                const valueStr = String(value)
-                const lockKey = `unique:${def.name}`
-                await this.locks.withLock(lockKey, async () => {
-                    const valuesSet = this.getUniqueValues(def.name)
-                    if (operation === 'register') {
-                        assert(
-                            this.uniqueDefinitionByName.has(def.name),
-                            `Attribute ${def.name} not found in unique attribute definition config`
-                        )
-                        valuesSet.add(valueStr)
-                    } else {
-                        if (valuesSet.delete(valueStr)) {
-                            this.log.debug(
-                                `Unregistered unique value '${valueStr}' for attribute ${def.name}`
-                            )
-                        }
-                    }
-                })
-            }
+            if (!isEmpty && !fusionAccount.needsReset) continue
+
+            const valueStr = String(value)
+            const lockKey = `unique:${def.name}`
+            await this.locks.withLock(lockKey, async () => {
+                const valuesSet = this.getUniqueValues(def.name)
+                if (operation === 'register') {
+                    assert(
+                        this.uniqueDefinitionByName.has(def.name),
+                        `Attribute ${def.name} not found in unique attribute definition config`
+                    )
+                    valuesSet.add(valueStr)
+                } else if (valuesSet.delete(valueStr)) {
+                    this.log.debug(`Unregistered unique value '${valueStr}' for attribute ${def.name}`)
+                }
+            })
         }
     }
 
@@ -777,25 +750,20 @@ export class AttributeService {
         const needsRefresh = fusionAccount.needsRefresh || fusionAccount.needsReset || refresh
         const hasValue = isValidAttributeValue(fusionAccount.attributes[name])
 
-        if (hasValue && !needsRefresh) {
+        if (hasValue && !needsRefresh) return
+
+        if (fusionAccount.isIdentity && name === fusionIdentityAttribute) {
+            this.log.warn(`Skipping change of nativeIdentity for account: ${fusionAccount.name}`)
             return
         }
 
-        if (fusionAccount.isIdentity) {
-            if (name === fusionIdentityAttribute) {
-                this.log.warn(`Skipping change of nativeIdentity for account: ${fusionAccount.name}`)
-                return
-            }
-
-            if (name === fusionDisplayAttribute) {
-                this.log.warn(`Setting identity name for attribute: ${name} for account: ${fusionAccount.name}`)
-                fusionAccount.attributes[name] = fusionAccount.name!
-                return
-            }
+        if (fusionAccount.isIdentity && name === fusionDisplayAttribute) {
+            this.log.warn(`Setting identity name for attribute: ${name} for account: ${fusionAccount.name}`)
+            fusionAccount.attributes[name] = fusionAccount.name!
+            return
         }
 
         const value = await this.generateNormalAttributeValue(definition, fusionAccount, context)
-
         if (value !== undefined) {
             fusionAccount.attributes[name] = value
             context[name] = value
@@ -825,34 +793,26 @@ export class AttributeService {
         context: { [key: string]: any }
     ): Promise<void> {
         const { name } = definition
-        const needsReset = fusionAccount.needsReset
-        const hasValue = isValidAttributeValue(fusionAccount.attributes[name])
         const { fusionIdentityAttribute, fusionDisplayAttribute } = this.schemas
+        const hasValue = isValidAttributeValue(fusionAccount.attributes[name])
 
-        // Preserve existing unique values unless reset is requested
-        if (hasValue && !needsReset) {
-            const existingValue = String(fusionAccount.attributes[name])
-            if (existingValue) {
-                this.getUniqueValues(name).add(existingValue)
-            }
+        if (hasValue && !fusionAccount.needsReset) {
+            this.getUniqueValues(name).add(String(fusionAccount.attributes[name]))
             return
         }
 
-        if (fusionAccount.isIdentity) {
-            if (name === fusionIdentityAttribute) {
-                this.log.warn(`Skipping change of nativeIdentity for account: ${fusionAccount.name}`)
-                return
-            }
+        if (fusionAccount.isIdentity && name === fusionIdentityAttribute) {
+            this.log.warn(`Skipping change of nativeIdentity for account: ${fusionAccount.name}`)
+            return
+        }
 
-            if (name === fusionDisplayAttribute) {
-                this.log.warn(`Setting identity name for attribute: ${name} for account: ${fusionAccount.name}`)
-                fusionAccount.attributes[name] = fusionAccount.name!
-                return
-            }
+        if (fusionAccount.isIdentity && name === fusionDisplayAttribute) {
+            this.log.warn(`Setting identity name for attribute: ${name} for account: ${fusionAccount.name}`)
+            fusionAccount.attributes[name] = fusionAccount.name!
+            return
         }
 
         const value = await this.generateUniqueAttributeValue(definition, fusionAccount, context)
-
         if (value !== undefined) {
             fusionAccount.attributes[name] = value
             context[name] = value

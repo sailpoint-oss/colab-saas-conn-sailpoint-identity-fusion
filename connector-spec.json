@@ -38,7 +38,7 @@
         "proxyEnabled": false,
         "proxyUrl": "",
         "proxyPassword": "",
-        "maxAttempts": 100,
+        "maxAttempts": 20,
         "digits": 1,
         "counterStart": 1,
         "case": "same",
@@ -140,6 +140,14 @@
                                             "type": "text",
                                             "required": true,
                                             "helpKey": "Name of the authoritative account source. Must match the source name in ISC exactly (case-sensitive)"
+                                        },
+                                        {
+                                            "key": "enabled",
+                                            "label": "Enabled",
+                                            "type": "toggle",
+                                            "value": "true",
+                                            "required": false,
+                                            "helpKey": "Include this source in processing. Disabled sources are excluded from aggregation and fusion entirely"
                                         },
                                         {
                                             "key": "forceAggregation",
@@ -699,7 +707,7 @@
                     "items": [
                         {
                             "key": "fusionFormAttributes",
-                            "label": "List of identity attributes to include in form",
+                            "label": "List of Fusion account attributes to include in form",
                             "type": "list",
                             "required": false,
                             "helpKey": "Attributes shown on manual review form. Helps reviewers decide; examples: name, email, department"
