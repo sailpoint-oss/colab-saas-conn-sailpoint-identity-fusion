@@ -28,7 +28,7 @@
         "markdown-it": "^14.0.0",
         "sailpoint-api-client": "1.6.9",
         "transliteration": "^2.3.5",
-        "uuid": "^9.0.1",
+        "uuid": "^14.0.0",
         "velocityjs": "^2.0.6"
     },
     "devDependencies": {
