@@ -1,0 +1,126 @@
+name: New version full review
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: new-version-full-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refactor-quality:
+    name: Refactor quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run refactor quality checks
+        run: npm run ci:refactor-review
+
+  code-docs-quality:
+    name: JSDoc and inline docs quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run JSDoc and inline docs checks
+        run: npm run ci:docs-code-review
+
+  docs-review:
+    name: Docs and README changelog review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: npm ci
+      - name: Install docs requirements
+        run: python3 -m pip install -r requirements-docs.txt
+      - name: Show docs diff scope
+        run: node scripts/ci-docs-diff-scope.cjs
+      - name: Run docs review checks
+        run: npm run ci:docs-review
+
+  ai-refactor-review:
+    name: AI refactor review (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: "!github.event.pull_request.draft"
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Cursor refactor reviewer
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          cursor-agent -p "Review this pull request with focus on refactor quality:
+          - detect overcomplicated logic and suggest simplifications
+          - flag risky changes with hidden side effects or brittle coupling
+          - suggest maintainability improvements and test gaps
+          Keep feedback concrete and actionable.
+          Return concise review findings and recommended fixes." --model composer-2
+
+  ai-docs-review:
+    name: AI docs review (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: "!github.event.pull_request.draft"
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Cursor docs reviewer
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          cursor-agent -p "Review this pull request with focus on documentation quality:
+          - ensure JSDoc and inline comments match implementation behavior
+          - detect stale or missing technical documentation in changed code
+          - check whether README changelog updates are clear and accurate
+          Keep feedback concise and specific.
+          Return concise review findings and recommended fixes." --model composer-2
