@@ -234,13 +234,13 @@ const DEFAULT_FUSION_REPORT_TEMPLATE = `<!DOCTYPE html>
                                 <span style="display:inline-block; vertical-align:middle; margin-right:6px; padding:2px 8px; border-radius:6px; background:#e0f2fe; color:#0b5cab; border:1px solid #7dd3fc; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">Exact</span>
                                 {{/if}}
                                 {{#if auto}}
-                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#dcfce7; color:#166534; border:1px solid #86efac; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">{{i18n "auto"}}</span>
+                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#dcfce7; color:#166534; border:1px solid #86efac; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">AUTO</span>
                                 {{/if}}
                                 {{#if manual}}
-                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">{{i18n "manual"}}</span>
+                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">MANUAL</span>
                                 {{/if}}
                                 {{#if ../deferred}}
-                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fffbeb; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">{{i18n "deferred"}}</span>
+                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fffbeb; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">Deferred</span>
                                 {{/if}}
                               </div>
                             </div>
@@ -474,13 +474,13 @@ const DEFAULT_FUSION_REVIEW_TEMPLATE = `<!DOCTYPE html>
                                                                                 <span style="display:inline-block; vertical-align:middle; margin:4px 0 0 6px; padding:2px 8px; border-radius:6px; background:#e0f2fe; color:#0b5cab; border:1px solid #7dd3fc; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">Exact</span>
                                                                                 {{/if}}
                                                                                 {{#if auto}}
-                                                                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#dcfce7; color:#166534; border:1px solid #86efac; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">{{i18n "auto"}}</span>
+                                                                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#dcfce7; color:#166534; border:1px solid #86efac; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">AUTO</span>
                                                                                 {{/if}}
                                                                                 {{#if manual}}
-                                                                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">{{i18n "manual"}}</span>
+                                                                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">MANUAL</span>
                                                                                 {{/if}}
                                                                                 {{#if ../deferred}}
-                                                                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fffbeb; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">{{i18n "deferred"}}</span>
+                                                                                <span style="display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 8px; border-radius:6px; background:#fffbeb; color:#92400e; border:1px solid #fde68a; font-size:10px; font-weight:700; text-transform:uppercase; white-space:nowrap;">Deferred</span>
                                                                                 {{/if}}
                                                                             </div>
                                                                         </div>
